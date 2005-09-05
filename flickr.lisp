@@ -213,6 +213,19 @@
   (id :|id|)
   (title :|title|))
 
+(defapistruct flickr-public-contact
+  (id :|nsid|)
+  (username :|username|)
+  (ignored :|ignored| :boolean))
+
+(defapistruct flickr-contact
+  (id :|nsid|)
+  (username :|username|)
+  (realname :|realname|)
+  (isfriend :|friend| :boolean)
+  (isfamily :|family| :boolean)
+  (ignored :|ignored| :boolean))
+
 (defun arguments-signature (args)
   (labels ((convert (args)
 	     (if (null args)
@@ -276,6 +289,16 @@
 
 ;(defcall "blogs.getList" ()
 ;  (call))
+
+(defcall "contacts.getList" (&key (filter nil))
+  (let ((result (if (null filter)
+		    (call)
+		    (call :|filter| filter))))
+    (mapcar #'make-flickr-contact (xml-children result))))
+
+(defcall "contacts.getPublicList" (user-id)
+  (let ((result (call :|user_id| user-id)))
+    (mapcar #'make-flickr-public-contact (xml-children result))))
 
 (defcall "groups.getInfo" (group-id)
   (make-flickr-group (call :|group_id| group-id)))

@@ -102,6 +102,10 @@
     :sources ((flickr-person
 	       (username realname mbox-sha1sum location ispro))
 	      (flickr-user
+	       (username))
+	      (flickr-contact
+	       (username realname))
+	      (flickr-public-contact
 	       (username)))
     :fetchers ((flickr-person
 		(people-get-info id)))
@@ -110,7 +114,9 @@
 		      ((photosets)
 		       fetch-user-photosets)
 		      ((groups)
-		       fetch-user-groups)))
+		       fetch-user-groups)
+		      ((contacts)
+		       fetch-user-contacts)))
 
 (defun user-with-name (name)
   (let* ((flickr-user (people-find-by-username name))
@@ -243,6 +249,15 @@
 			(take-values-from-flickr-context-pool group context-pool)
 			group))
 		  (remove-if-not #'flickr-context-pool-p contexts)))))
+
+(defmethod fetch-user-contacts ((user user))
+  (let ((contacts (contacts-get-public-list (user-id user))))
+    (setf (slot-value user 'contacts)
+	  (mapcar #'(lambda (contact)
+		      (let ((contact-user (make-user (flickr-public-contact-id contact))))
+			(take-values-from-flickr-public-contact contact-user contact)
+			contact-user))
+		  contacts))))
 
 (defun reset-clickr ()
   (setf *user-hash-table* (make-hash-table :test #'equal))

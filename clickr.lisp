@@ -116,7 +116,9 @@
 		      ((groups)
 		       fetch-user-groups)
 		      ((contacts)
-		       fetch-user-contacts)))
+		       fetch-user-contacts)
+		      ((favorites)
+		       fetch-user-favorites)))
 
 (defun user-with-name (name)
   (let* ((flickr-user (people-find-by-username name))
@@ -170,7 +172,14 @@
 			     (setf (slot-value instance 'owner)
 				   (make-user (flickr-search-photo-owner search-photo)))))))
 	      (flickr-photoset-photo
-	       (secret server title)))
+	       (secret server title))
+	      (flickr-favorite
+	       (secret server title
+		       ispublic isfriend isfamily)
+	       :custom (((owner)
+			 #'(lambda (instance favorite)
+			     (setf (slot-value instance 'owner)
+				   (make-user (flickr-favorite-owner favorite))))))))
     :fetchers ((flickr-full-photo
 		(photos-get-info id))) ;FIXME: pass secret if available
     :custom-fetchers (((sets groups)
@@ -259,9 +268,21 @@
 			contact-user))
 		  contacts))))
 
+(defmethod fetch-user-favorites ((user user))
+  (let ((favorites (collect-pages #'(lambda (per-page page)
+				      (favorites-get-public-list (user-id user)
+								 :per-page per-page :page page)))))
+    (setf (slot-value user 'favorites)
+	  (mapcar #'(lambda (favorite)
+		      (let ((photo (make-photo (flickr-favorite-id favorite))))
+			(take-values-from-flickr-favorite photo favorite)
+			photo))
+		  favorites))))
+
 (defun reset-clickr ()
   (setf *user-hash-table* (make-hash-table :test #'equal))
   (setf *note-hash-table* (make-hash-table :test #'equal))
   (setf *tag-hash-table* (make-hash-table :test #'equal))
   (setf *photo-hash-table* (make-hash-table :test #'equal))
-  (setf *photoset-hash-table* (make-hash-table :test #'equal)))
+  (setf *photoset-hash-table* (make-hash-table :test #'equal))
+  (setf *group-hash-table* (make-hash-table :test #'equal)))

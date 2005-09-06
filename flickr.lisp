@@ -226,6 +226,16 @@
   (isfamily :|family| :boolean)
   (ignored :|ignored| :boolean))
 
+(defapistruct flickr-favorite
+  (id :|id|)
+  (owner :|owner|)
+  (secret :|secret|)
+  (server :|server|)
+  (title :|title|)
+  (ispublic :|ispublic| :boolean)
+  (isfriend :|isfriend| :boolean)
+  (isfamily :|isfamily| :boolean))
+
 (defun arguments-signature (args)
   (labels ((convert (args)
 	     (if (null args)
@@ -277,6 +287,14 @@
 		 (apply #'make-flickr-call ,full-method-name-string string-modifier args)))
 	,@body))))
 
+;; returns a list of the photos, the total number of pages, and the
+;; total number of photos.
+(defun multi-page-call (call-fun make-fun per-page page &rest args)
+  (let ((result (apply call-fun :|per_page| (format nil "~A" per-page) :|page| (format nil "~A" page) args)))
+    (values (mapcar make-fun (xml-children result))
+	    (parse-integer (xml-attrib :|pages| result))
+	    (parse-integer (xml-attrib :|total| result)))))
+
 (defcall "auth.getFrob" ()
   (xml-body (call)))
 
@@ -300,20 +318,23 @@
   (let ((result (call :|user_id| user-id)))
     (mapcar #'make-flickr-public-contact (xml-children result))))
 
+(defcall "favorites.getList" (user-id &key (per-page 50) (page 1))
+  (multi-page-call #'call #'make-flickr-favorite per-page page :|user_id| user-id))
+
+(defcall "favorites.getPublicList" (user-id &key (per-page 50) (page 1))
+  (multi-page-call #'call #'make-flickr-favorite per-page page :|user_id| user-id))
+
 (defcall "groups.getInfo" (group-id)
   (make-flickr-group (call :|group_id| group-id)))
 
 (defcall "groups.pools.getPhotos" (group-id &key (per-page 50) (page 1) tags)
-  (let* ((optional-args (if (null tags)
-			    '()
-			    (list :|tags| tags)))
-	 (result (apply #'call :|group_id| group-id
-			:|per-page| (format nil "~A" per-page)
-			:|page| (format nil "~A" page)
-			optional-args)))
-    (values (mapcar #'make-flickr-search-photo (xml-children result))
-	    (parse-integer (xml-attrib :|pages| result))
-	    (parse-integer (xml-attrib :|total| result)))))
+  (let ((optional-args (if (null tags)
+			   '()
+			   (list :|tags| tags))))
+    (apply #'multi-page-call
+	   #'call #'make-flickr-search-photo
+	   per-page page
+	   :|group_id| group-id optional-args)))
 
 (defcall "people.findByUsername" (name)
   (make-flickr-user (call :|username| name)))
@@ -350,26 +371,21 @@
 			   '())))
     (make-flickr-full-photo (apply #'call :|photo_id| photo-id optional-args))))
 
-;; returns a list of the photos, the total number of pages, and the
-;; total number of photos.
 (defcall "photos.search" (&key (per-page 50) (page 1)
 			       user-id tags tag-mode text min-upload-date max-upload-date
 			       min-taken-data max-taken-date license sort)
-  (let* ((optional-args (mappend #'(lambda (name value)
-				     (if (not (null value))
-					 (list name value)
-					 '()))
-				 '(:|user_id| :|tags| :|tag_mode| :|text| :|min_upload_date| :|max_upload_date|
-				   :|min_taken_date| :|max_taken_date| :|license| :|sort|)
-				 (list user-id tags tag-mode text min-upload-date max-upload-date
-				       min-taken-data max-taken-date license sort)))
-	 (result (apply #'call
-			:|per_page| (format nil "~A" per-page)
-			:|page| (format nil "~A" page)
-			optional-args)))
-    (values (mapcar #'make-flickr-search-photo (xml-children result))
-	    (parse-integer (xml-attrib :|pages| result))
-	    (parse-integer (xml-attrib :|total| result)))))
+  (let ((optional-args (mappend #'(lambda (name value)
+				    (if (not (null value))
+					(list name value)
+					'()))
+				'(:|user_id| :|tags| :|tag_mode| :|text| :|min_upload_date| :|max_upload_date|
+				  :|min_taken_date| :|max_taken_date| :|license| :|sort|)
+				(list user-id tags tag-mode text min-upload-date max-upload-date
+				      min-taken-data max-taken-date license sort))))
+    (apply #'multi-page-call
+	   #'call #'make-flickr-search-photo
+	   per-page page
+	   optional-args)))
 
 (defcall "photosets.getInfo" (photoset-id)
   (let ((result (call :|photoset_id| photoset-id)))

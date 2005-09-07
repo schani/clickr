@@ -183,7 +183,9 @@
     :fetchers ((flickr-full-photo
 		(photos-get-info id))) ;FIXME: pass secret if available
     :custom-fetchers (((sets groups)
-		       fetch-photo-contexts)))
+		       fetch-photo-contexts)
+		      ((sizes)
+		       fetch-photo-sizes)))
 
 (defapiclass photoset
     :key id
@@ -278,6 +280,9 @@
 			(take-values-from-flickr-favorite photo favorite)
 			photo))
 		  favorites))))
+
+(defmethod fetch-photo-sizes ((photo photo))
+  (setf (slot-value photo 'sizes) (photos-get-sizes (photo-id photo))))
 
 (defun reset-clickr ()
   (setf *user-hash-table* (make-hash-table :test #'equal))

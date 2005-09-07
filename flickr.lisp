@@ -236,6 +236,13 @@
   (isfriend :|isfriend| :boolean)
   (isfamily :|isfamily| :boolean))
 
+(defapistruct flickr-size
+  (label :|label|)
+  (width :|width| :integer)
+  (height :|height| :integer)
+  (source :|source|)
+  (url :|url|))
+
 (defun arguments-signature (args)
   (labels ((convert (args)
 	     (if (null args)
@@ -305,9 +312,6 @@
 	    (xml-body (xml-child :|perms| result))
 	    (make-flickr-user (xml-child :|user| result)))))
 
-;(defcall "blogs.getList" ()
-;  (call))
-
 (defcall "contacts.getList" (&key (filter nil))
   (let ((result (if (null filter)
 		    (call)
@@ -346,8 +350,6 @@
   (let ((result (call :|user_id| user-id)))
     (mapcar #'make-flickr-list-group (xml-children result))))
 
-;; returns a list of the photos, the total number of pages, and the
-;; total number of photos.
 ;(defcall "people.getPublicPhotos" (user-id &key (per-page 50) (page 1))
 ;  (let ((result (call :|user_id| user-id :|per_page| (format nil "~A" per-page) :|page| (format nil "~A" page))))
 ;    (values (mapcar #'make-flickr-photo (xml-children result))
@@ -370,6 +372,9 @@
 			   (list :|secret| secret)
 			   '())))
     (make-flickr-full-photo (apply #'call :|photo_id| photo-id optional-args))))
+
+(defcall "photos.getSizes" (photo-id)
+  (mapcar #'make-flickr-size (xml-children (call :|photo_id| photo-id))))
 
 (defcall "photos.search" (&key (per-page 50) (page 1)
 			       user-id tags tag-mode text min-upload-date max-upload-date

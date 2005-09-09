@@ -1,5 +1,9 @@
 (in-package :flickr)			;FIXME: make this clickr
 
+(defvar *views-scanner* (cl-ppcre:create-scanner "Viewed <b>((\\d+)</b> times|once</b>)"))
+(defvar *faves-scanner* (cl-ppcre:create-scanner "fave_count = (\\d+);</script>"))
+(defvar *comment-scanner* (cl-ppcre:create-scanner "name=\"comment(\\d+)\"><img src=\"http://static.flickr.com/\\d+/buddyicons/(\\d+@\\w\\d+)[.]jpg"))
+
 (defmacro defapiclass (name &key key sources fetchers custom-fetchers)
   (when (null key)
     (error "CLickr API Class ~A has no key" name))
@@ -185,7 +189,9 @@
     :custom-fetchers (((sets groups)
 		       fetch-photo-contexts)
 		      ((sizes)
-		       fetch-photo-sizes)))
+		       fetch-photo-sizes)
+		      ((num-views num-faves comments)
+		       fetch-non-api-photo-stuff)))
 
 (defapiclass photoset
     :key id
@@ -216,6 +222,11 @@
 		(groups-get-info id)))
     :custom-fetchers (((photos)
 		       fetch-group-photos)))
+
+(defclass comment ()
+  ((id :accessor comment-id :initarg :id)
+   (photo :accessor comment-photo :initarg :photo)
+   (sender :accessor comment-sender :initarg :sender)))
 
 (defmethod fetch-group-photos ((group group))
   (let ((photos (collect-pages #'(lambda (per-page page)
@@ -283,6 +294,55 @@
 
 (defmethod fetch-photo-sizes ((photo photo))
   (setf (slot-value photo 'sizes) (photos-get-sizes (photo-id photo))))
+
+(defmethod photo-photopage-url ((photo photo))
+  (let ((urls (photo-urls photo)))
+    (flickr-url-url (find-if #'(lambda (url) (string-equal "photopage" (flickr-url-type url))) urls))))
+
+(defun read-url-response (url)
+  (destructuring-bind (code headers stream)
+      (http-get url)
+    (declare (ignore code headers))
+    (let ((lines nil))
+      (do ((line (read-line stream nil nil) (read-line stream nil nil)))
+	  ((null line))
+	(push line lines))
+      (apply #'concatenate 'string (reverse lines)))))
+
+;; Returns number of views, number of faves and a list of comment
+;; instances.  Comments by deleted users are not returned (yet).
+(defmethod read-photo-counts ((photo photo))
+  (let* ((url (photo-photopage-url photo))
+	 (html (read-url-response url))
+	 (num-views (multiple-value-bind (match regs)
+			(cl-ppcre:scan-to-strings *views-scanner* html)
+		      (declare (ignore match))
+		      (if (null (aref regs 1))
+			  1
+			  (parse-integer (aref regs 1)))))
+	 (num-faves (multiple-value-bind (match regs)
+			(cl-ppcre:scan-to-strings *faves-scanner* html)
+		      (declare (ignore match))
+		      (parse-integer (aref regs 0))))
+	 (comments nil))
+    (cl-ppcre:do-scans (ms me rs re *comment-scanner* html)
+      (let ((comment-id (subseq html (aref rs 0) (aref re 0)))
+	    (sender-id (subseq html (aref rs 1) (aref re 1))))
+	(push (make-instance 'comment
+			     :id comment-id
+			     :photo photo
+			     :sender (make-user sender-id))
+	      comments)))
+    (values num-views
+	    num-faves
+	    (reverse comments))))
+
+(defmethod fetch-non-api-photo-stuff ((photo photo))
+  (multiple-value-bind (num-views num-faves comments)
+      (read-photo-counts photo)
+    (setf (slot-value photo 'num-views) num-views)
+    (setf (slot-value photo 'num-faves) num-faves)
+    (setf (slot-value photo 'comments) comments)))
 
 (defun reset-clickr ()
   (setf *user-hash-table* (make-hash-table :test #'equal))

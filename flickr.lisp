@@ -1,5 +1,5 @@
 (defpackage "FLICKR"
-  (:use "CL" "CCL" "S-XML" "S-XML-RPC" "MD5" "UTILS")
+  (:use "CL" "CCL" "S-XML" "S-XML-RPC" "MD5" "UTILS" "TRIVIAL-HTTP")
   (:export
 
    ))

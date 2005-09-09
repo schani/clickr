@@ -2,6 +2,9 @@
 
 (asdf:operate 'asdf:load-op 's-xml)
 (asdf:operate 'asdf:load-op 's-xml-rpc)
+(asdf:operate 'asdf:load-op 'trivial-sockets)
+(asdf:operate 'asdf:load-op 'trivial-http)
+(asdf:operate 'asdf:load-op 'cl-ppcre)
 
 (load "utils.lisp")
 

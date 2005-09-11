@@ -1,5 +1,5 @@
 (defpackage "FLICKR"
-  (:use "CL" "CCL" "S-XML" "S-XML-RPC" "MD5" "UTILS" "TRIVIAL-HTTP")
+  (:use "CL" "CCL" "S-XML" "S-XML-RPC" "MD5" "UTILS" "TRIVIAL-HTTP" "LET-MATCH")
   (:export
 
    ))
@@ -356,6 +356,10 @@
 ;	    (parse-integer (xml-attrib :|pages| result))
 ;	    (parse-integer (xml-attrib :|total| result)))))
 
+(defcall "photos.addTags" (photo-id tags)
+  (let ((tags-string (format nil "~{\"~A\"~^ ~}" tags)))
+    (call :|photo_id| photo-id :|tags| tags-string)))
+
 (defcall "photos.getAllContexts" (photo-id)
   (let ((result (call-with-string-modifier #'(lambda (s)
 					       (format nil "<list>~A</list>" s))
@@ -412,7 +416,7 @@
 (defun request-authorization ()
   (deauthorize)
   (setf *frob* (auth-get-frob))
-  (let* ((perms "read")
+  (let* ((perms "write")
 	 (api-sig (arguments-signature (list :|api_key| *api-key* :|perms| perms :|frob| *frob*)))
 	 (url (format nil "http://flickr.com/services/auth/?api_key=~A&perms=~A&frob=~A&api_sig=~A"
 		      *api-key* perms *frob* api-sig)))

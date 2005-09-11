@@ -7,6 +7,7 @@
 (asdf:operate 'asdf:load-op 'cl-ppcre)
 
 (load "utils.lisp")
+(load "let-match.lisp")
 
 (load "md5.lisp")
 (load "flickr.lisp")
@@ -16,3 +17,5 @@
 
 (defparameter *schani* (user-with-name "schani"))
 (defparameter *testerich* (user-with-name "test_er_ich"))
+
+(load "automatr.lisp")

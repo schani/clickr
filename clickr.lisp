@@ -351,3 +351,7 @@
   (setf *photo-hash-table* (make-hash-table :test #'equal))
   (setf *photoset-hash-table* (make-hash-table :test #'equal))
   (setf *group-hash-table* (make-hash-table :test #'equal)))
+
+(defmethod add-tag ((photo photo) tags)
+  (photos-add-tags (photo-id photo) tags)
+  (slot-makunbound photo 'tags))

@@ -13,8 +13,9 @@
 (defparameter *actions* nil)
 
 (defun add-action (name action condition)
-  (push (make-action :name name :action action :condition condition)
-	*actions*))
+  (let ((actions (remove name *actions* :key #'action-name)))
+    (setf *actions* (cons (make-action :name name :action action :condition condition)
+			  actions))))
 
 (defstruct entity
   name
@@ -126,6 +127,9 @@
     ((add-tag ?raw)
      (let ((text (text-for-raw-tag raw)))
        (not (member text (photo-tags photo) :key #'tag-text :test #'string-equal))))
+    ((add-to-set ?id)
+     (let ((set (make-photoset id)))
+       (not (member photo (photoset-photos set)))))
     (?a
      (error "Unknown action ~A" a))))
 
@@ -143,6 +147,9 @@
   (case-match (action-action action)
     ((add-tag ?raw)
      (add-tag photo (list raw)))
+    ((add-to-set ?id)
+     (let ((set (make-photoset id)))
+       (add-photo photo set)))
     (?a
      (error "Unknown action ~A" a))))
 
@@ -215,3 +222,7 @@
     (add-action (intern (format nil "TOP-C~A" num))
 		`(add-tag ,(format nil "top-c~A" num))
 		`(>= (count (filter comments (not (eq sender *me*)))) ,bound))))
+
+(add-action 'most-faved
+	    '(add-to-set "487122")
+	    '(>= (count faves) 6))

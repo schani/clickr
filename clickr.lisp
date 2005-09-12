@@ -355,3 +355,8 @@
 (defmethod add-tag ((photo photo) tags)
   (photos-add-tags (photo-id photo) tags)
   (slot-makunbound photo 'tags))
+
+(defmethod add-photo ((photo photo) (set photoset))
+  (photosets-add-photo (photoset-id set) (photo-id photo))
+  (slot-makunbound photo 'sets)
+  (slot-makunbound set 'photos))

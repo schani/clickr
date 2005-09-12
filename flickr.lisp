@@ -396,6 +396,9 @@
 	   per-page page
 	   optional-args)))
 
+(defcall "photosets.addPhoto" (photoset-id photo-id)
+  (call :|photoset_id| photoset-id :|photo_id| photo-id))
+
 (defcall "photosets.getInfo" (photoset-id)
   (let ((result (call :|photoset_id| photoset-id)))
     (make-flickr-photoset-info result)))

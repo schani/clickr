@@ -360,3 +360,8 @@
   (photosets-add-photo (photoset-id set) (photo-id photo))
   (slot-makunbound photo 'sets)
   (slot-makunbound set 'photos))
+
+(defmethod add-photo ((photo photo) (group group))
+  (groups-pools-add (photo-id photo) (group-id group))
+  (slot-makunbound photo 'groups)
+  (slot-makunbound group 'photos))

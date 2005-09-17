@@ -331,6 +331,9 @@
 (defcall "groups.getInfo" (group-id)
   (make-flickr-group (call :|group_id| group-id)))
 
+(defcall "groups.pools.add" (photo-id group-id)
+  (call :|photo_id| photo-id :|group_id| group-id))
+
 (defcall "groups.pools.getPhotos" (group-id &key (per-page 50) (page 1) tags)
   (let ((optional-args (if (null tags)
 			   '()
@@ -349,12 +352,6 @@
 (defcall "people.getPublicGroups" (user-id)
   (let ((result (call :|user_id| user-id)))
     (mapcar #'make-flickr-list-group (xml-children result))))
-
-;(defcall "people.getPublicPhotos" (user-id &key (per-page 50) (page 1))
-;  (let ((result (call :|user_id| user-id :|per_page| (format nil "~A" per-page) :|page| (format nil "~A" page))))
-;    (values (mapcar #'make-flickr-photo (xml-children result))
-;	    (parse-integer (xml-attrib :|pages| result))
-;	    (parse-integer (xml-attrib :|total| result)))))
 
 (defcall "photos.addTags" (photo-id tags)
   (let ((tags-string (format nil "~{\"~A\"~^ ~}" tags)))

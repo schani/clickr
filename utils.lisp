@@ -1,8 +1,8 @@
 ;; utils.lisp
 
-;; MathMap
+;; clickr
 
-;; Copyright (C) 2002-2004 Mark Probst
+;; Copyright (C) 2002-2005 Mark Probst
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 (defpackage :utils
   (:use :cl)
   (:export
-   #:map-times #:integers-upto #:mappend #:dcs #:ucs #:make-tmp-name))
+   #:map-times #:integers-upto #:mappend #:dcs #:ucs #:make-tmp-name #:partition #:slet*))
 
 (in-package :utils)
 
@@ -52,3 +52,57 @@
   (let ((name (format nil "tmp_~A" *tmp-num*)))
     (incf *tmp-num*)
     name))
+
+(defun partition (pred list)
+  (let ((in nil)
+	(out nil))
+    (dolist (item list)
+      (if (funcall pred item)
+	  (push item in)
+	  (push item out)))
+    (values (reverse in) (reverse out))))
+
+(defmacro slet* (bindings &body body)
+  (labels ((destructure (lhs names body)
+	     (if (null lhs)
+		 body
+		 (let ((rest (destructure (cdr lhs) (cdr names) body)))
+		   (if (symbolp (car lhs))
+		       rest
+		       `(destructuring-bind ,(car lhs)
+			 ,(car names)
+			 ,rest)))))
+	   (expand (bindings)
+	     (if (null bindings)
+		 (cons 'progn body)
+		 (let* ((binding (car bindings))
+			(lhs (subseq binding 0 (1- (length binding))))
+			(rhs (car (last binding)))
+			(rest (expand (cdr bindings)))
+			(names (mapcar #'(lambda (n)
+					   (if (symbolp n) n (gensym)))
+				       lhs))
+			(destructured-rest (destructure lhs names rest)))
+		   (case (length lhs)
+		     (0 `(progn ,rhs ,destructured-rest))
+		     (1 `(let ((,(car names) ,rhs))
+			  ,destructured-rest))
+		     (t `(multiple-value-bind ,names
+			  ,rhs
+			  ,destructured-rest)))))))
+    (expand bindings)))
+
+;; returns a random subset of the elements in list of length (min num
+;; (length list))
+(defun random-select (num list)
+  (let* ((length (length list))
+	 (num (min num length)))
+    (labels ((indexes (num rest)
+	       (if (zerop num)
+		   rest
+		   (let ((n (random length)))
+		     (if (member n rest)
+			 (indexes num rest)
+			 (indexes (1- num) (cons n rest)))))))
+      (let ((indexes (indexes num nil)))
+	(mapcar #'(lambda (n) (nth n list)) indexes)))))

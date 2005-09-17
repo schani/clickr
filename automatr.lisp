@@ -30,13 +30,13 @@
 
 (defmacro defentity (name slots)
   `(push (make-entity :name ',name
-	  :slots (list ,@(mapcar #'(lambda (slot)
-				     (destructuring-bind (name accessor &optional (type :string))
-					 slot
-				       `(make-entity-slot :name ',name
-					 :accessor ,accessor
-					 :type ',type)))
-				 slots)))
+		      :slots (list ,@(mapcar #'(lambda (slot)
+						 (destructuring-bind (name accessor &optional (type :string))
+						     slot
+						   `(make-entity-slot :name ',name
+								      :accessor ,accessor
+								      :type ',type)))
+					     slots)))
     *entities*))
 
 (defun entity-name-p (name)
@@ -44,6 +44,28 @@
 
 (defun entity-with-name (name)
   (find name *entities* :key #'entity-name))
+
+(defstruct automatr-group
+  name
+  id
+  max-posted
+  max-batch)
+
+(defparameter *automatr-groups* nil)
+
+(defmacro defgroup (name id &key max-posted max-batch)
+  `(push (make-automatr-group :name ',name
+			      :id ,id
+			      :max-posted ,max-posted
+			      :max-batch ,max-batch)
+	 *automatr-groups*))
+
+(defun automatr-group-with-name (name)
+  (find name *automatr-groups* :key #'automatr-group-name))
+
+(defun group-for-automatr-group-with-name (name)
+  (let ((automatr-group (automatr-group-with-name name)))
+    (make-group (automatr-group-id automatr-group))))
 
 (defstruct op
   name
@@ -66,16 +88,22 @@
 (defop count :integer ((list (:list ?)))
   (length list))
 
-(defop >= :boolean ((a :integer) (b :integer))
+(defop / :number ((a :number) (b :number))
+  (/ a b))
+
+(defop >= :boolean ((a :number) (b :number))
   (>= a b))
 
 (defop not :boolean ((x :boolean))
   (not x))
 
+(defop and :boolean ((x :boolean) (y :boolean))
+  (and x y))
+
 (defop eq :boolean ((x ?t) (y ?t))
   (eq x y))
 
-;; evaluate the expression for the given instance of an entity
+;; evaluates the expression for the given instance of an entity.
 ;; returns the result and the result's type
 (defun eval-expr (expr instance entity expected-type)
   (declare (ignore expected-type))
@@ -88,6 +116,8 @@
 		   (entity-slot-type slot))))
 	((integerp expr)
 	 (values expr :integer))
+	((numberp expr)
+	 (values expr :number))
 	((listp expr)
 	 (case (car expr)
 	   (filter
@@ -130,6 +160,9 @@
     ((add-to-set ?id)
      (let ((set (make-photoset id)))
        (not (member photo (photoset-photos set)))))
+    ((add-to-group ?name)
+     (let ((group (group-for-automatr-group-with-name name)))
+       (not (member photo (group-photos group)))))
     (?a
      (error "Unknown action ~A" a))))
 
@@ -150,8 +183,31 @@
     ((add-to-set ?id)
      (let ((set (make-photoset id)))
        (add-photo photo set)))
+    ((add-to-group ?name)
+     (let ((group (group-for-automatr-group-with-name name)))
+       (add-photo photo group)))
     (?a
      (error "Unknown action ~A" a))))
+
+(defun audit-actions (actions)
+  (let* ((add-to-group-actions (remove-if-not #'(lambda (a) (matchp (action-action (cadr a)) (add-to-group ?)))
+					      actions))
+	 (group-names (mapcar #'(lambda (a)
+				  (cadr (action-action (cadr a))))
+			      add-to-group-actions))
+	 (group-names (remove-duplicates group-names)))
+    (reduce #'(lambda (actions group-name)
+		(let ((group (automatr-group-with-name group-name)))
+		  (if (null (automatr-group-max-batch group))
+		      actions
+		      (slet* ((group-actions other-actions
+					     (partition #'(lambda (a)
+							    (and (matchp (action-action (cadr a)) (add-to-group ?))
+								 (eql (cadr (action-action (cadr a))) group-name)))
+							actions))
+			      (audited-group-actions (random-select (automatr-group-max-batch group) group-actions)))
+			(append audited-group-actions other-actions)))))
+	    group-names :initial-value actions)))
 
 (defun apply-actions (actions)
   (dolist (a actions)
@@ -206,6 +262,17 @@
 (defentity comment
     ((sender #'comment-sender)))
 
+(defgroup 1000views
+    "83435940@N00")
+
+(defgroup fav/view>=5%
+    "39907031@N00"
+  :max-batch 1)
+
+(defgroup 100v+10f
+    "72576714@N00"
+  :max-batch 3)
+
 (dolist (num '(111 333 555 777 999 1111 2222 3333 4444 5555 6666 7777 8888 9999))
   (add-action (intern (format nil "TOP-V~A" num))
 	      `(add-tag ,(format nil "top-v~A" num))
@@ -226,3 +293,15 @@
 (add-action 'most-faved
 	    '(add-to-set "487122")
 	    '(>= (count faves) 6))
+
+(add-action '1000views
+	    '(add-to-group 1000views)
+	    '(>= num-views 1000))
+
+(add-action 'fav/view>=5%
+	    '(add-to-group fav/view>=5%)
+	    '(and (>= (count faves) 5) (>= (/ (count faves) num-views) 0.05)))
+
+(add-action '100v+10f
+	    '(add-to-group 100v+10f)
+	    '(and (>= num-views 100) (>= (count faves) 10)))

@@ -22,7 +22,7 @@
 (defpackage :let-match
   (:use :cl)
   (:export
-   #:let-match #:case-match))
+   #:let-match #:case-match #:matchp))
 
 (in-package :let-match)
 
@@ -164,3 +164,8 @@
 	   ,(if (caar cases)
 		`(,(caar cases))
 	      nil))))))
+
+(defmacro matchp (value pattern)
+  `(case-match ,value
+     (,pattern t)
+     (? nil)))

@@ -365,3 +365,8 @@
   (groups-pools-add (photo-id photo) (group-id group))
   (slot-makunbound photo 'groups)
   (slot-makunbound group 'photos))
+
+(defmethod remove-photo ((photo photo) (group group))
+  (groups-pools-remove (photo-id photo) (group-id group))
+  (slot-makunbound photo 'groups)
+  (slot-makunbound group 'photos))

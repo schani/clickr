@@ -22,7 +22,7 @@
 (defpackage :utils
   (:use :cl)
   (:export
-   #:map-times #:integers-upto #:mappend #:dcs #:ucs #:make-tmp-name #:partition #:slet*))
+   #:map-times #:integers-upto #:mappend #:dcs #:ucs #:make-tmp-name #:partition #:slet* #:random-select))
 
 (in-package :utils)
 

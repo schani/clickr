@@ -63,9 +63,12 @@
 (defun automatr-group-with-name (name)
   (find name *automatr-groups* :key #'automatr-group-name))
 
+(defun group-for-automatr-group (automatr-group)
+  (make-group (automatr-group-id automatr-group)))
+
 (defun group-for-automatr-group-with-name (name)
   (let ((automatr-group (automatr-group-with-name name)))
-    (make-group (automatr-group-id automatr-group))))
+    (group-for-automatr-group automatr-group)))
 
 (defstruct op
   name
@@ -163,6 +166,9 @@
     ((add-to-group ?name)
      (let ((group (group-for-automatr-group-with-name name)))
        (not (member photo (group-photos group)))))
+    ((remove-from-group ?name)
+     (let ((group (group-for-automatr-group-with-name name)))
+       (member photo (group-photos group))))
     (?a
      (error "Unknown action ~A" a))))
 
@@ -186,6 +192,9 @@
     ((add-to-group ?name)
      (let ((group (group-for-automatr-group-with-name name)))
        (add-photo photo group)))
+    ((remove-from-group ?name)
+     (let ((group (group-for-automatr-group-with-name name)))
+       (remove-photo photo group)))
     (?a
      (error "Unknown action ~A" a))))
 
@@ -206,7 +215,23 @@
 								 (eql (cadr (action-action (cadr a))) group-name)))
 							actions))
 			      (audited-group-actions (random-select (automatr-group-max-batch group) group-actions)))
-			(append audited-group-actions other-actions)))))
+			(if (not (null (automatr-group-max-posted group)))
+			    (let* ((clickr-group (group-for-automatr-group group))
+				   (user-group-photos (remove-if-not #'(lambda (p)
+									 (eq *me* (photo-owner p)))
+								     (group-photos clickr-group)))
+				   (num-remove (max (- (+ (length user-group-photos) (length audited-group-actions))
+						       (automatr-group-max-posted group))
+						    0))
+				   (remove-photos (random-select num-remove user-group-photos))
+				   (remove-actions (mapcar #'(lambda (p)
+							       (list p (make-action :name 'remove-photo
+										    :action `(remove-from-group 
+											      ,(automatr-group-name group))
+										    :condition 't)))
+							   remove-photos)))
+			      (append remove-actions audited-group-actions other-actions))
+			    (append audited-group-actions other-actions))))))
 	    group-names :initial-value actions)))
 
 (defun apply-actions (actions)
@@ -273,10 +298,19 @@
     "72576714@N00"
   :max-batch 3)
 
+(defgroup top-v
+    "56022122@N00"
+  :max-batch 1
+  :max-posted 11)
+
 (dolist (num '(111 333 555 777 999 1111 2222 3333 4444 5555 6666 7777 8888 9999))
   (add-action (intern (format nil "TOP-V~A" num))
 	      `(add-tag ,(format nil "top-v~A" num))
 	      `(>= num-views ,num)))
+
+(add-action 'top-v
+	    '(add-to-group top-v)
+	    '(>= num-views 111))
 
 (dolist (num '(25 50 75 100 150 200 250 300 350 400 450 500))
   (add-action (intern (format nil "TOP-F~A" num))

@@ -343,6 +343,9 @@
 	   per-page page
 	   :|group_id| group-id optional-args)))
 
+(defcall "groups.pools.remove" (photo-id group-id)
+  (call :|group_id| group-id :|photo_id| photo-id))
+
 (defcall "people.findByUsername" (name)
   (make-flickr-user (call :|username| name)))
 

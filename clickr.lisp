@@ -352,9 +352,28 @@
   (setf *photoset-hash-table* (make-hash-table :test #'equal))
   (setf *group-hash-table* (make-hash-table :test #'equal)))
 
+(defun text-for-raw-tag (raw)
+  (string-downcase (remove-if #'(lambda (c) (find c " _-")) raw)))
+
 (defmethod add-tag ((photo photo) tags)
   (photos-add-tags (photo-id photo) tags)
   (slot-makunbound photo 'tags))
+
+(defmethod remove-tag ((photo photo) (tag tag))
+  (assert (member tag (photo-tags photo)))
+  (photos-remove-tag (tag-id tag))
+  (slot-makunbound photo 'tags))
+
+(defmethod remove-tag ((photo photo) (raw string))
+  (let* ((text (text-for-raw-tag raw))
+	 (tag (find text (photo-tags photo) :key #'tag-text :test #'string-equal)))
+    (if (null tag)
+	(error "Photo has no tag ~A" raw)
+	(remove-tag photo tag))))
+
+(defmethod has-tag ((photo photo) (raw string))
+  (let ((text (text-for-raw-tag raw)))
+    (member text (photo-tags photo) :key #'tag-text :test #'string-equal)))
 
 (defmethod add-photo ((photo photo) (set photoset))
   (photosets-add-photo (photoset-id set) (photo-id photo))

@@ -2,9 +2,6 @@
 
 (defparameter *me* *schani*)
 
-(defun text-for-raw-tag (raw)
-  (string-downcase (remove-if #'(lambda (c) (find c " _-")) raw)))
-
 (defstruct action
   name
   action
@@ -16,6 +13,14 @@
   (let ((actions (remove name *actions* :key #'action-name)))
     (setf *actions* (cons (make-action :name name :action action :condition condition)
 			  actions))))
+
+(defun add-state-tag-actions (name tag-name condition)
+  (add-action (intern (format nil "ADD-~A" name))
+	      `(add-tag ,tag-name)
+	      condition)
+  (add-action (intern (format nil "REMOVE-~A" name))
+	      `(remove-tag ,tag-name)
+	      `(not ,condition)))
 
 (defstruct entity
   name
@@ -49,15 +54,17 @@
   name
   id
   max-posted
-  max-batch)
+  max-batch
+  condition)
 
 (defparameter *automatr-groups* nil)
 
-(defmacro defgroup (name id &key max-posted max-batch)
+(defmacro defgroup (name id &key max-posted max-batch condition)
   `(push (make-automatr-group :name ',name
 			      :id ,id
 			      :max-posted ,max-posted
-			      :max-batch ,max-batch)
+			      :max-batch ,max-batch
+	  		      :condition ',condition)
 	 *automatr-groups*))
 
 (defun automatr-group-with-name (name)
@@ -82,7 +89,7 @@
   `(push (make-op :name ',name
 	  :type ',type
 	  :arg-types ',(mapcar #'cadr args)
-	  :func #'(lambda ,(mapcar #'car args) ,@body))
+	  :func #'(lambda (instance ,@(mapcar #'car args)) ,@body))
     *ops*))
 
 (defun op-with-name (name)
@@ -103,15 +110,24 @@
 (defop and :boolean ((x :boolean) (y :boolean))
   (and x y))
 
+(defop or :boolean ((x :boolean) (y :boolean))
+  (or x y))
+
 (defop eq :boolean ((x ?t) (y ?t))
   (eq x y))
 
-;; evaluates the expression for the given instance of an entity.
-;; returns the result and the result's type
+(defop in-set :boolean ((id :string))
+  (let ((set (make-photoset id)))
+    (member instance (photoset-photos set))))
+
 (defun eval-expr (expr instance entity expected-type)
+  "Evaluates the expression for the given instance of an entity.
+   Returns the result and the result's type."
   (declare (ignore expected-type))
   (cond ((eq expr '*me*)
 	 (values *me* 'user))
+	((eq expr 't)
+	 (values t :boolean))
 	((symbolp expr)
 	 (let ((slot (find expr (entity-slots entity) :key #'entity-slot-name)))
 	   (assert (not (null slot)))
@@ -121,6 +137,8 @@
 	 (values expr :integer))
 	((numberp expr)
 	 (values expr :number))
+	((stringp expr)
+	 (values expr :string))
 	((listp expr)
 	 (case (car expr)
 	   (filter
@@ -145,27 +163,54 @@
 	      (let ((args (mapcar #'(lambda (arg-expr arg-type)
 				      (eval-expr arg-expr instance entity arg-type))
 				  (cdr expr) (op-arg-types op))))
-		(values (apply (op-func op) args)
-			(op-type op)))))))))
+		(values (apply (op-func op) instance args)
+			(op-type op)))))))
+	(t
+	 (error "illegal expression ~A" expr))))
 
-;; returns a list of all actions whose conditions are met by the
-;; instance
 (defun actions-for-instance (instance entity)
+  "Returns a list of all actions whose conditions are met by the
+   instance."
   (remove-if-not #'(lambda (action)
 		     (eval-expr (action-condition action) instance entity :boolean))
 		 *actions*))
 
+(defun group-removals-for-photo (photo)
+  (mappend #'(lambda (automatr-group)
+	       (if (and (not (null (automatr-group-condition automatr-group)))
+			(member photo (group-photos (group-for-automatr-group automatr-group)))
+			(not (eval-expr (automatr-group-condition automatr-group)
+					photo
+					(entity-with-name 'photo)
+					:boolean)))
+		   (list (make-action :name 'remove-photo
+				      :action `(remove-from-group
+						,(automatr-group-name automatr-group))
+				      :condition 't))
+		   nil))
+	   *automatr-groups*))
+
+(defun group-condition-satisfied (group photo)
+  (or (null (automatr-group-condition group))
+      (eval-expr (automatr-group-condition group)
+		 photo
+		 (entity-with-name 'photo)
+		 :boolean)))
+
 (defun action-applicable-p (action photo)
   (case-match (action-action action)
     ((add-tag ?raw)
-     (let ((text (text-for-raw-tag raw)))
-       (not (member text (photo-tags photo) :key #'tag-text :test #'string-equal))))
+     (not (has-tag photo raw)))
+    ((remove-tag ?raw)
+     (has-tag photo raw))
     ((add-to-set ?id)
      (let ((set (make-photoset id)))
        (not (member photo (photoset-photos set)))))
     ((add-to-group ?name)
-     (let ((group (group-for-automatr-group-with-name name)))
-       (not (member photo (group-photos group)))))
+     (let* ((automatr-group (automatr-group-with-name name))
+	    (group (group-for-automatr-group automatr-group)))
+       (and (not (member photo (group-photos group)))
+	    (group-condition-satisfied automatr-group photo))))
     ((remove-from-group ?name)
      (let ((group (group-for-automatr-group-with-name name)))
        (member photo (group-photos group))))
@@ -174,18 +219,23 @@
 
 (defun all-applicable-actions (user)
   (remove-if #'null
-	     (mapcar #'(lambda (photo)
-			 (cons photo
-			       (remove-if-not #'(lambda (action)
-						  (action-applicable-p action photo))
-					      (actions-for-instance photo (entity-with-name 'photo)))))
-		     (user-photos user))
+	     (mappend #'(lambda (photo)
+			  (let* ((actions (actions-for-instance photo (entity-with-name 'photo)))
+				 (applicable-actions (remove-if-not #'(lambda (action)
+									(action-applicable-p action photo))
+								    actions))
+				 (group-removals (group-removals-for-photo photo)))
+			    (mapcar #'(lambda (a) (cons photo a))
+				    (append applicable-actions group-removals))))
+		      (user-photos user))
 	     :key #'cdr))
 
 (defun apply-action (action photo)
   (case-match (action-action action)
     ((add-tag ?raw)
      (add-tag photo (list raw)))
+    ((remove-tag ?raw)
+     (remove-tag photo raw))
     ((add-to-set ?id)
      (let ((set (make-photoset id)))
        (add-photo photo set)))
@@ -199,10 +249,10 @@
      (error "Unknown action ~A" a))))
 
 (defun audit-actions (actions)
-  (let* ((add-to-group-actions (remove-if-not #'(lambda (a) (matchp (action-action (cadr a)) (add-to-group ?)))
+  (let* ((add-to-group-actions (remove-if-not #'(lambda (a) (matchp (action-action (cdr a)) (add-to-group ?)))
 					      actions))
 	 (group-names (mapcar #'(lambda (a)
-				  (cadr (action-action (cadr a))))
+				  (cadr (action-action (cdr a))))
 			      add-to-group-actions))
 	 (group-names (remove-duplicates group-names)))
     (reduce #'(lambda (actions group-name)
@@ -211,8 +261,8 @@
 		      actions
 		      (slet* ((group-actions other-actions
 					     (partition #'(lambda (a)
-							    (and (matchp (action-action (cadr a)) (add-to-group ?))
-								 (eql (cadr (action-action (cadr a))) group-name)))
+							    (and (matchp (action-action (cdr a)) (add-to-group ?))
+								 (eql (cadr (action-action (cdr a))) group-name)))
 							actions))
 			      (audited-group-actions (random-select (automatr-group-max-batch group) group-actions)))
 			(if (not (null (automatr-group-max-posted group)))
@@ -225,7 +275,7 @@
 						    0))
 				   (remove-photos (random-select num-remove user-group-photos))
 				   (remove-actions (mapcar #'(lambda (p)
-							       (list p (make-action :name 'remove-photo
+							       (cons p (make-action :name 'remove-photo
 										    :action `(remove-from-group 
 											      ,(automatr-group-name group))
 										    :condition 't)))
@@ -236,10 +286,9 @@
 
 (defun apply-actions (actions)
   (dolist (a actions)
-    (destructuring-bind (photo &rest actions)
+    (destructuring-bind (photo . action)
 	a
-      (dolist (action actions)
-	(apply-action action photo)))))
+      (apply-action action photo))))
 
 (defentity photo
     ((isfavorite #'photo-isfavorite :boolean)
@@ -303,6 +352,48 @@
   :max-batch 1
   :max-posted 11)
 
+(defgroup showcase
+    "62795763@N00"
+  :max-batch 1
+  :max-posted 5)
+
+(defgroup noteworthy-notes
+    "19704745@N00"
+  :max-batch 1)
+
+(defgroup iflickr
+    "30845071@N00"
+  :max-batch 1
+  :max-posted 5)
+
+(defgroup flickr-addicts
+    "76535076@N00"
+  :max-batch 1
+  :max-posted 5)
+
+(defgroup flickr-central
+    "34427469792@N01"
+  :max-batch 1
+  :max-posted 5)
+
+(defgroup 1-to-5-favorites
+    "71394080@N00"
+  :max-batch 1
+  :max-posted 10
+  :condition (and (>= (count faves) 1) (>= 5 (count faves))))
+
+(defgroup 5-to-10-favorites
+    "28531369@N00"
+  :max-batch 1
+  :max-posted 10
+  :condition (and (>= (count faves) 5) (>= 10 (count faves))))
+
+(defgroup 10-to-25-favorites
+    "39445275@N00"
+  :max-batch 1
+  :max-posted 10
+  :condition (and (>= (count faves) 10) (>= 25 (count faves))))
+
 (dolist (num '(111 333 555 777 999 1111 2222 3333 4444 5555 6666 7777 8888 9999))
   (add-action (intern (format nil "TOP-V~A" num))
 	      `(add-tag ,(format nil "top-v~A" num))
@@ -339,3 +430,47 @@
 (add-action '100v+10f
 	    '(add-to-group 100v+10f)
 	    '(and (>= num-views 100) (>= (count faves) 10)))
+
+(add-action '1-to-5-favorites
+	    '(add-to-group 1-to-5-favorites)
+	    't)
+
+(add-action '5-to-10-favorites
+	    '(add-to-group 5-to-10-favorites)
+	    't)
+
+(add-action '10-to-25-favorites
+	    '(add-to-group 10-to-25-favorites)
+	    't)
+
+(add-action 'showcase
+	    '(add-to-group showcase)
+	    '(in-set "292480"))
+
+(add-action 'noteworthy-notes
+	    '(add-to-group noteworthy-notes)
+	    '(>= (count notes) 1))
+
+(add-state-tag-actions '1-5-fav
+		       "1-5-fav"
+		       '(and (>= (count faves) 1) (>= 5 (count faves))))
+
+(add-state-tag-actions '5-10-fav
+		       "5-10-fav"
+		       '(and (>= (count faves) 5) (>= 10 (count faves))))
+
+(add-state-tag-actions '10-25-fav
+		       "10-25-fav"
+		       '(and (>= (count faves) 10) (>= 25 (count faves))))
+
+;(add-action 'iflickr
+;	    '(add-to-group iflickr)
+;	    '(or (in-set "292480") (>= (count faves) 10)))
+
+;(add-action 'flickr-addicts
+;	    '(add-to-group flickr-addicts)
+;	    '(or (in-set "292480") (>= (count faves) 10)))
+
+;(add-action 'flickr-central
+;	    '(add-to-group flickr-central)
+;	    '(or (in-set "292480") (>= (count faves) 10)))

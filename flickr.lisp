@@ -380,6 +380,9 @@
 (defcall "photos.getSizes" (photo-id)
   (mapcar #'make-flickr-size (xml-children (call :|photo_id| photo-id))))
 
+(defcall "photos.removeTag" (tag-id)
+  (call :|tag_id| tag-id))
+
 (defcall "photos.search" (&key (per-page 50) (page 1)
 			       user-id tags tag-mode text min-upload-date max-upload-date
 			       min-taken-data max-taken-date license sort)

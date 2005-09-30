@@ -175,6 +175,12 @@
 		     (eval-expr (action-condition action) instance entity :boolean))
 		 *actions*))
 
+(defun removal-action-for-automatr-group (automatr-group)
+  (let ((name (automatr-group-name automatr-group)))
+    (make-action :name (intern (format nil "REMOVE-FROM-~A" name))
+		 :action `(remove-from-group ,name)
+		 :condition 't)))
+
 (defun group-removals-for-photo (photo)
   (mappend #'(lambda (automatr-group)
 	       (if (and (not (null (automatr-group-condition automatr-group)))
@@ -183,10 +189,7 @@
 					photo
 					(entity-with-name 'photo)
 					:boolean)))
-		   (list (make-action :name 'remove-photo
-				      :action `(remove-from-group
-						,(automatr-group-name automatr-group))
-				      :condition 't))
+		   (list (removal-action-for-automatr-group automatr-group))
 		   nil))
 	   *automatr-groups*))
 
@@ -275,10 +278,7 @@
 						    0))
 				   (remove-photos (random-select num-remove user-group-photos))
 				   (remove-actions (mapcar #'(lambda (p)
-							       (cons p (make-action :name 'remove-photo
-										    :action `(remove-from-group 
-											      ,(automatr-group-name group))
-										    :condition 't)))
+							       (cons p (removal-action-for-automatr-group group)))
 							   remove-photos)))
 			      (append remove-actions audited-group-actions other-actions))
 			    (append audited-group-actions other-actions))))))
@@ -289,6 +289,20 @@
     (destructuring-bind (photo . action)
 	a
       (apply-action action photo))))
+
+(defun htmlize-actions (actions)
+  (with-open-file (out "actions.html" :direction :output :if-exists :supersede)
+    (format out "<html><body><table>~%")
+    (dolist (a actions)
+      (destructuring-bind (photo . action)
+	  a
+	(format out "<tr><td><a href=\"~A\"><img src=\"http://static.flickr.com/~A/~A_~A_t.jpg\"></a><td>~A~%"
+		(photo-photopage-url photo)
+		(photo-server photo)
+		(photo-id photo)
+		(photo-secret photo)
+		(action-name action))))
+    (format out "</table></body></html>~%")))
 
 (defentity photo
     ((isfavorite #'photo-isfavorite :boolean)

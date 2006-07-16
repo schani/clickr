@@ -1,6 +1,9 @@
-(in-package :flickr)
+(defpackage "AUTOMATR"
+  (:use "CL" "CCL" "CLICKR" "UTILS" "LET-MATCH"))
 
-(defparameter *me* *schani*)
+(in-package :automatr)
+
+(defparameter *me* (user-with-name "schani"))
 
 (defstruct action
   name
@@ -59,13 +62,13 @@
 
 (defparameter *automatr-groups* nil)
 
-(defmacro defgroup (name id &key max-posted max-batch condition)
-  `(push (make-automatr-group :name ',name
-			      :id ,id
-			      :max-posted ,max-posted
-			      :max-batch ,max-batch
-	  		      :condition ',condition)
-	 *automatr-groups*))
+(defun defgroup (name id &key max-posted max-batch condition)
+  (push (make-automatr-group :name name
+			     :id id
+			     :max-posted max-posted
+			     :max-batch max-batch
+			     :condition condition)
+	*automatr-groups*))
 
 (defun automatr-group-with-name (name)
   (find name *automatr-groups* :key #'automatr-group-name))
@@ -99,7 +102,9 @@
   (length list))
 
 (defop / :number ((a :number) (b :number))
-  (/ a b))
+  (if (zerop b)
+      0
+      (/ a b)))
 
 (defop >= :boolean ((a :number) (b :number))
   (>= a b))
@@ -290,18 +295,37 @@
 	a
       (apply-action action photo))))
 
+(defun action-html (action)
+  (case-match (action-action action)
+    ((add-tag ?raw)
+     (format nil "Add tag ~A" raw))
+    ((remove-tag ?raw)
+     (format nil "Remove tag ~A" raw))
+    ((add-to-set ?id)
+     (let ((set (make-photoset id)))
+       (format nil "Add to set ~A" (photoset-title set))))
+    ((add-to-group ?name)
+     (let ((group (group-for-automatr-group-with-name name)))
+       (format nil "Add to group ~A" (group-title group))))
+    ((remove-from-group ?name)
+     (let ((group (group-for-automatr-group-with-name name)))
+       (format nil "Remove from group ~A" (group-title group))))
+    (?a
+     (format nil "Unknown action ~A" a))))
+
 (defun htmlize-actions (actions)
   (with-open-file (out "actions.html" :direction :output :if-exists :supersede)
     (format out "<html><body><table>~%")
     (dolist (a actions)
       (destructuring-bind (photo . action)
 	  a
-	(format out "<tr><td><a href=\"~A\"><img src=\"http://static.flickr.com/~A/~A_~A_t.jpg\"></a><td>~A~%"
+	(format out "<tr><td><a href=\"~A\"><img src=\"http://static.flickr.com/~A/~A_~A_t.jpg\"></a><td>~A<td>~A~%"
 		(photo-photopage-url photo)
 		(photo-server photo)
 		(photo-id photo)
 		(photo-secret photo)
-		(action-name action))))
+		(action-name action)
+		(action-html action))))
     (format out "</table></body></html>~%")))
 
 (defentity photo
@@ -348,65 +372,127 @@
      (text #'tag-text)))
 
 (defentity comment
-    ((sender #'comment-sender)))
+    ((author #'comment-author)))
 
-(defgroup 1000views
+(defgroup '1000views
     "83435940@N00")
 
-(defgroup fav/view>=5%
+(defgroup 'fav/view>=5%
     "39907031@N00"
   :max-batch 1)
 
-(defgroup 100v+10f
+(defgroup '100v+10f
     "72576714@N00"
   :max-batch 3)
 
-(defgroup top-v
+(defgroup '1000v+100f
+    "79664037@N00"
+  :max-batch 1)
+
+(defgroup '1000v+40f
+    "47981347@N00"
+  :max-batch 1)
+
+(defgroup '3000v+120f
+    "95324234@N00"
+  :max-batch 1)
+
+(defgroup 'centurian
+    "38475367@N00"
+  :max-batch 3)
+
+(defgroup '200v
+    "23348528@N00"
+  :max-batch 3)
+
+(defgroup '500v+50f
+    "49764889@N00"
+  :max-batch 1)
+
+(defgroup '500v+20f
+    "42378300@N00"
+  :max-batch 1)
+
+(defgroup '2000v
+    "74001424@N00"
+  :max-batch 1)
+
+(defgroup 'fave30times
+    "22944948@N00"
+  :max-batch 1)
+
+(defgroup '50faves
+    "41075027@N00"
+  :max-batch 1)
+
+(defgroup '100faves
+    "28795624@N00"
+  :max-batch 1)
+
+(defgroup '100club
+    "11512103@N00"
+  :max-batch 1)
+
+(defgroup 'top-v
     "56022122@N00"
   :max-batch 1
   :max-posted 11)
 
-(defgroup showcase
+(defgroup 'top-f
+    "23561440@N00"
+  :max-batch 1)
+
+(defgroup 'showcase
     "62795763@N00"
   :max-batch 1
   :max-posted 5)
 
-(defgroup noteworthy-notes
+(defgroup 'noteworthy-notes
     "19704745@N00"
   :max-batch 1)
 
-(defgroup iflickr
+(defgroup 'iflickr
     "30845071@N00"
   :max-batch 1
   :max-posted 5)
 
-(defgroup flickr-addicts
+(defgroup 'flickr-addicts
     "76535076@N00"
   :max-batch 1
   :max-posted 5)
 
-(defgroup flickr-central
+(defgroup 'flickr-central
     "34427469792@N01"
   :max-batch 1
   :max-posted 5)
 
-(defgroup 1-to-5-favorites
+(defgroup '1-to-5-favorites
     "71394080@N00"
   :max-batch 1
   :max-posted 10
-  :condition (and (>= (count faves) 1) (>= 5 (count faves))))
+  :condition '(and (>= (count faves) 1) (>= 5 (count faves))))
 
-(defgroup 5-to-10-favorites
+(defgroup '5-to-10-favorites
     "28531369@N00"
   :max-batch 1
   :max-posted 10
-  :condition (and (>= (count faves) 5) (>= 10 (count faves))))
+  :condition '(and (>= (count faves) 5) (>= 10 (count faves))))
 
-(defgroup 10-to-25-favorites
+(defgroup '10-to-25-favorites
     "39445275@N00"
   :max-batch 1
   :max-posted 10
-  :condition (and (>= (count faves) 10) (>= 25 (count faves))))
+  :condition '(and (>= (count faves) 10) (>= 25 (count faves))))
+
+(dolist (group '((11 1111 "10021501@N00")
+		 (22 2222 "51639810@N00")
+		 (33 3333 "93348988@N00")
+		 (44 4444 "13466285@N00")
+		 (55 5555 "63242381@N00")
+		 (77 7777 "66069685@N00")
+		 (88 8888 "82243602@N00")
+		 (99 9999 "63114470@N00")))
+  nil)
 
 (dolist (num '(111 333 555 777 999 1111 2222 3333 4444 5555 6666 7777 8888 9999))
   (add-action (intern (format nil "TOP-V~A" num))
@@ -416,6 +502,10 @@
 (add-action 'top-v
 	    '(add-to-group top-v)
 	    '(>= num-views 111))
+
+(add-action 'top-f
+	    '(add-to-group top-f)
+	    '(>= (count faves) 25))
 
 (dolist (num '(25 50 75 100 150 200 250 300 350 400 450 500))
   (add-action (intern (format nil "TOP-F~A" num))
@@ -427,11 +517,11 @@
       vals
     (add-action (intern (format nil "TOP-C~A" num))
 		`(add-tag ,(format nil "top-c~A" num))
-		`(>= (count (filter comments (not (eq sender *me*)))) ,bound))))
+		`(>= (count (filter comments (not (eq author *me*)))) ,bound))))
 
 (add-action 'most-faved
 	    '(add-to-set "487122")
-	    '(>= (count faves) 6))
+	    '(>= (count faves) 15))
 
 (add-action '1000views
 	    '(add-to-group 1000views)
@@ -444,6 +534,64 @@
 (add-action '100v+10f
 	    '(add-to-group 100v+10f)
 	    '(and (>= num-views 100) (>= (count faves) 10)))
+
+(add-action '1000v+40f
+	    '(add-to-group 1000v+40f)
+	    '(and (and (>= num-views 1000) (>= 1500 num-views)) (>= (count faves) 40)))
+
+(add-action '1000v+40f-tag
+	    '(add-tag "1000v40f")
+	    '(and (and (>= num-views 1000) (>= 1500 num-views)) (>= (count faves) 40)))
+
+(add-action '1000v+100f
+	    '(add-to-group 1000v+100f)
+	    '(and (>= num-views 1000) (>= (count faves) 100)))
+
+(add-action '3000v+120f
+	    '(add-to-group 3000v+120f)
+	    '(and (>= num-views 3000) (>= (count faves) 120)))
+
+(add-action 'centurian
+	    '(add-to-group centurian)
+	    '(and (>= num-views 100) (>= 190 num-views)))
+
+(add-action '200v
+	    '(add-to-group 200v)
+	    '(>= num-views 200))
+
+(add-action '500v+50f
+	    '(add-to-group 500v+50f)
+	    '(and (>= num-views 500) (>= (count faves) 50)))
+
+(add-action '500v+20f
+	    '(add-to-group 500v+20f)
+	    '(and (and (>= num-views 500) (>= 1000 num-views))
+	          (>= (count faves) 20)))
+
+(add-action '500v+20f-tag
+	    '(add-tag "500v20f")
+	    '(and (and (>= num-views 500) (>= 1000 num-views))
+	          (>= (count faves) 20)))
+
+(add-action '2000v
+	    '(add-to-group 2000v)
+	    '(>= num-views 2000))
+
+(add-action 'fave30times
+	    '(add-to-group fave30times)
+	    '(>= (count faves) 30))
+
+(add-action '50faves
+	    '(add-to-group 50faves)
+	    '(>= (count faves) 50))
+
+(add-action '100faves
+	    '(add-to-group 100faves)
+	    '(>= (count faves) 100))
+
+(add-action '100club
+	    '(add-to-group 100club)
+	    '(>= (count faves) 100))
 
 (add-action '1-to-5-favorites
 	    '(add-to-group 1-to-5-favorites)

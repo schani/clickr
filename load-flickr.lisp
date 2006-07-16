@@ -10,12 +10,22 @@
 (load "let-match.lisp")
 
 (load "md5.lisp")
+
 (load "flickr.lisp")
 (load "clickr.lisp")
-
-(in-package :flickr)
-
-(defparameter *schani* (user-with-name "schani"))
-(defparameter *testerich* (user-with-name "test_er_ich"))
-
+(load "clickr-utils.lisp")
 (load "automatr.lisp")
+
+(in-package :automatr)
+
+(defun login-and-make-actions (user)
+  (flickr:request-authorization)
+  (sleep 10)
+  (flickr:complete-authorization)
+  (let ((actions (audit-actions (all-applicable-actions user))))
+    (htmlize-actions actions)
+    actions))
+
+(defun reset-all ()
+  (reset-clickr)
+  (setq *me* (user-with-name "schani")))

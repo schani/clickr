@@ -1,8 +1,6 @@
 (defpackage "FLICKR"
   (:use "CL" "CCL" "S-XML" "S-XML-RPC" "MD5" "UTILS" "TRIVIAL-HTTP" "LET-MATCH")
-  (:export
-
-   ))
+  (:export #:deauthorize #:request-authorization #:complete-authorization #:collect-pages))
 
 (in-package :flickr)
 
@@ -90,7 +88,9 @@
 			    (if (and (listp path) (eql (car path) 'function))
 				`(,member-keyword (funcall ,path xml))
 				`(,member-keyword (convert-type (xml-follow-path xml ',path) ,type))))))
-		    members))))))
+		    members)))
+      (export '(,(intern (format nil "~A-P" name))
+		,@(mapcar #'(lambda (m) (intern (format nil "~A-~A" name (car m)))) members))))))
 
 (defapistruct flickr-user
   (id :|nsid|)
@@ -243,6 +243,14 @@
   (source :|source|)
   (url :|url|))
 
+(defapistruct flickr-comment
+  (id :|id|)
+  (author :|author|)
+  (authorname :|authorname|)
+  (date-create :|date_create|)
+  (permalink :|permalink|)
+  (text :body))
+
 (defun arguments-signature (args)
   (labels ((convert (args)
 	     (if (null args)
@@ -287,18 +295,29 @@
 (defmacro defcall (name-string args &body body)
   (let ((full-method-name-string (concatenate 'string "flickr." name-string))
 	(fun-name (intern (lispify-method-name name-string))))
-    `(defun ,fun-name ,args
-      (labels ((call (&rest args)
-		 (apply #'make-flickr-call ,full-method-name-string #'identity args))
-	       (call-with-string-modifier (string-modifier &rest args)
-		 (apply #'make-flickr-call ,full-method-name-string string-modifier args)))
-	,@body))))
+    `(progn
+       (defun ,fun-name ,args
+	 (labels ((call (&rest args)
+		    (apply #'make-flickr-call ,full-method-name-string #'identity args))
+		  (call-with-string-modifier (string-modifier &rest args)
+		    (apply #'make-flickr-call ,full-method-name-string string-modifier args)))
+	   ,@body))
+       (export ',fun-name))))
 
 ;; returns a list of the photos, the total number of pages, and the
 ;; total number of photos.
 (defun multi-page-call (call-fun make-fun per-page page &rest args)
   (let ((result (apply call-fun :|per_page| (format nil "~A" per-page) :|page| (format nil "~A" page) args)))
-    (values (mapcar make-fun (xml-children result))
+    (values (mappend #'(lambda (c)
+			 (multiple-value-bind (obj condition)
+			     (ignore-errors (funcall make-fun c))
+			   (if condition
+			       (progn
+				 (format t "Warning: Object creation error for ~A in ~A: ~A~%"
+					 make-fun call-fun condition)
+				 nil)
+			       (list obj))))
+		     (xml-children result))
 	    (parse-integer (xml-attrib :|pages| result))
 	    (parse-integer (xml-attrib :|total| result)))))
 
@@ -359,6 +378,10 @@
 (defcall "photos.addTags" (photo-id tags)
   (let ((tags-string (format nil "~{\"~A\"~^ ~}" tags)))
     (call :|photo_id| photo-id :|tags| tags-string)))
+
+(defcall "photos.comments.getList" (photo-id)
+  (let ((result (call :|photo_id| photo-id)))
+    (mapcar #'make-flickr-comment (xml-children result))))
 
 (defcall "photos.getAllContexts" (photo-id)
   (let ((result (call-with-string-modifier #'(lambda (s)

@@ -1,20 +1,26 @@
-(in-package :flickr)			;FIXME: make this clickr
+(defpackage "CLICKR"
+  (:use "CL" "CCL" "TRIVIAL-HTTP" "FLICKR" "UTILS")
+  (:export #:user-with-name #:user-photopage-url #:photo-photopage-url #:group-url #:reset-clickr
+	   #:add-tag #:remove-tag #:has-tag #:add-photo #:remove-photo))
+
+(in-package :clickr)
 
 (defvar *views-scanner* (cl-ppcre:create-scanner "Viewed <b>((\\d+)</b> times|once</b>)"))
 (defvar *faves-scanner* (cl-ppcre:create-scanner "fave_count = (\\d+);</script>"))
-(defvar *comment-scanner* (cl-ppcre:create-scanner "name=\"comment(\\d+)\"><img src=\"http://static.flickr.com/\\d+/buddyicons/(\\d+@\\w\\d+)[.]jpg"))
 
 (defmacro defapiclass (name &key key sources fetchers custom-fetchers)
   (when (null key)
     (error "CLickr API Class ~A has no key" name))
   (labels ((accessor-method (class-name slot-name fetcher-name)
 	     (let ((accessor-name (intern (format nil "~A-~A" class-name slot-name))))
-	       `(defmethod ,accessor-name ((instance ,class-name))
-		 ,(if (null fetcher-name)
-		      '()
-		      `(unless (slot-boundp instance ',slot-name)
-			(,fetcher-name instance)))
-		 (slot-value instance ',slot-name))))
+	       `(progn
+		  (defmethod ,accessor-name ((instance ,class-name))
+		    ,(if (null fetcher-name)
+			 '()
+			 `(unless (slot-boundp instance ',slot-name)
+			    (,fetcher-name instance)))
+		    (slot-value instance ',slot-name))
+		  (export ',accessor-name))))
 	   (taker-name (struct-name)
 	     (intern (format nil "TAKE-VALUES-FROM-~A" struct-name)))
 	   (source-with-struct-name (struct-name)
@@ -41,13 +47,15 @@
 						  (mapcar #'car custom-fetchers))))
 	   (slots (cons key non-key-slots))
 	   (hash-table-name (intern (format nil "*~A-HASH-TABLE*" name)))
-	   (constructor-name (intern (format nil "MAKE-~A" name))))
+	   (constructor-name (intern (format nil "MAKE-~A" name)))
+	   (key-accessor-name (intern (format nil "~A-~A" name key))))
       `(progn
 	(defvar ,hash-table-name (make-hash-table :test #'equal)) ;the hash table
 
 	(defclass ,name ()		;the class
-	  ((,key :accessor ,(intern (format nil "~A-~A" name key)))
+	  ((,key :accessor ,key-accessor-name)
 	   ,@non-key-slots))
+	(export ',key-accessor-name)
 
 	(defun ,constructor-name (,key)	; the constructor
 	  (let ((instance (gethash ,key ,hash-table-name)))
@@ -56,6 +64,7 @@
 	      (setf (slot-value instance ',key) ,key)
 	      (setf (gethash ,key ,hash-table-name) instance))
 	    instance))
+	(export ',constructor-name)
 
 	,@(mappend #'(lambda (source)
 		       (destructuring-bind (struct-name source-slots &key custom)
@@ -130,6 +139,9 @@
     (take-values-from-flickr-user user flickr-user)
     user))
 
+(defmethod user-photopage-url ((user user))
+  (format nil "http://www.flickr.com/photos/~A" (user-id user)))
+
 (defapiclass note			;FIXME: add photo slot
     :key id
     :sources ((flickr-note
@@ -147,6 +159,15 @@
 			 #'(lambda (instance flickr-tag)
 			     (setf (slot-value instance 'author)
 				   (make-user (flickr-tag-author flickr-tag)))))))))
+
+(defapiclass comment			;FIXME: add photo slot
+    :key id
+    :sources ((flickr-comment
+	       (date-create permalink text)
+	       :custom (((author)
+			 #'(lambda (instance flickr-comment)
+			     (setf (slot-value instance 'author)
+				   (make-user (flickr-comment-author flickr-comment)))))))))
 
 (defapiclass photo
     :key id
@@ -190,7 +211,9 @@
 		       fetch-photo-contexts)
 		      ((sizes)
 		       fetch-photo-sizes)
-		      ((num-views num-faves comments)
+		      ((comments)
+		       fetch-photo-comments)
+		      ((num-views num-faves)
 		       fetch-non-api-photo-stuff)))
 
 (defapiclass photoset
@@ -222,11 +245,6 @@
 		(groups-get-info id)))
     :custom-fetchers (((photos)
 		       fetch-group-photos)))
-
-(defclass comment ()
-  ((id :accessor comment-id :initarg :id)
-   (photo :accessor comment-photo :initarg :photo)
-   (sender :accessor comment-sender :initarg :sender)))
 
 (defmethod fetch-group-photos ((group group))
   (let ((photos (collect-pages #'(lambda (per-page page)
@@ -295,9 +313,17 @@
 (defmethod fetch-photo-sizes ((photo photo))
   (setf (slot-value photo 'sizes) (photos-get-sizes (photo-id photo))))
 
+(defmethod fetch-photo-comments ((photo photo))
+  (let ((comments (photos-comments-get-list (photo-id photo))))
+    (setf (slot-value photo 'comments)
+	  (mapcar #'make-comment-from-flickr-comment comments))))
+
 (defmethod photo-photopage-url ((photo photo))
   (let ((urls (photo-urls photo)))
     (flickr-url-url (find-if #'(lambda (url) (string-equal "photopage" (flickr-url-type url))) urls))))
+
+(defmethod group-url ((group group))
+  (format nil "http://www.flickr.com/groups/~A" (group-id group)))
 
 (defun read-url-response (url)
   (destructuring-bind (code headers stream)
@@ -307,35 +333,30 @@
       (do ((line (read-line stream nil nil) (read-line stream nil nil)))
 	  ((null line))
 	(push line lines))
+      (close stream)
       (apply #'concatenate 'string (reverse lines)))))
 
-;; Returns number of views, number of faves and a list of comment
-;; instances.  Comments by deleted users are not returned (yet).
+;; Returns number of views and number of faves.
 (defmethod read-photo-counts ((photo photo))
   (let* ((url (photo-photopage-url photo))
 	 (html (read-url-response url))
 	 (num-views (multiple-value-bind (match regs)
 			(cl-ppcre:scan-to-strings *views-scanner* html)
 		      (declare (ignore match))
-		      (if (null (aref regs 1))
-			  1
-			  (parse-integer (aref regs 1)))))
+		      (cond ((null regs)
+			     0)
+			    ((null (aref regs 1))
+			     1)
+			    (t
+			     (parse-integer (aref regs 1))))))
 	 (num-faves (multiple-value-bind (match regs)
 			(cl-ppcre:scan-to-strings *faves-scanner* html)
 		      (declare (ignore match))
-		      (parse-integer (aref regs 0))))
-	 (comments nil))
-    (cl-ppcre:do-scans (ms me rs re *comment-scanner* html)
-      (let ((comment-id (subseq html (aref rs 0) (aref re 0)))
-	    (sender-id (subseq html (aref rs 1) (aref re 1))))
-	(push (make-instance 'comment
-			     :id comment-id
-			     :photo photo
-			     :sender (make-user sender-id))
-	      comments)))
+		      (if (null regs)
+			  0
+			  (parse-integer (aref regs 0))))))
     (values num-views
-	    num-faves
-	    (reverse comments))))
+	    num-faves)))
 
 (defmethod fetch-non-api-photo-stuff ((photo photo))
   (multiple-value-bind (num-views num-faves comments)
@@ -381,11 +402,11 @@
   (slot-makunbound set 'photos))
 
 (defmethod add-photo ((photo photo) (group group))
-  (groups-pools-add (photo-id photo) (group-id group))
+  (ignore-errors (groups-pools-add (photo-id photo) (group-id group)))
   (slot-makunbound photo 'groups)
   (slot-makunbound group 'photos))
 
 (defmethod remove-photo ((photo photo) (group group))
-  (groups-pools-remove (photo-id photo) (group-id group))
+  (ignore-errors (groups-pools-remove (photo-id photo) (group-id group)))
   (slot-makunbound photo 'groups)
   (slot-makunbound group 'photos))

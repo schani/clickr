@@ -1,5 +1,6 @@
 (require 'asdf)
 
+(asdf:operate 'asdf:load-op 'md5)
 (asdf:operate 'asdf:load-op 's-xml)
 (asdf:operate 'asdf:load-op 's-xml-rpc)
 (asdf:operate 'asdf:load-op 'trivial-sockets)
@@ -9,23 +10,21 @@
 (load "utils.lisp")
 (load "let-match.lisp")
 
-(load "md5.lisp")
-
 (load "flickr.lisp")
 (load "clickr.lisp")
-(load "clickr-utils.lisp")
+;(load "clickr-utils.lisp")
 (load "automatr.lisp")
 
-(in-package :automatr)
+(use-package '(:automatr :flickr :clickr))
 
 (defun login-and-make-actions (user)
-  (flickr:request-authorization)
+  (request-authorization)
   (sleep 10)
-  (flickr:complete-authorization)
+  (complete-authorization)
   (let ((actions (audit-actions (all-applicable-actions user))))
     (htmlize-actions actions)
     actions))
 
 (defun reset-all ()
   (reset-clickr)
-  (setq *me* (user-with-name "schani")))
+  (setq *me* (user-with-name *default-user-name*)))

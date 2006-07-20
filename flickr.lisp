@@ -1,11 +1,34 @@
+;;; flickr.lisp --- Low-level Flickr interface
+
+;; Copyright (C) 2006 Mark Probst
+
+;; Author: Mark Probst <mark.probst@gmail.com>
+;; Maintainer: Mark Probst <mark.probst@gmail.com>
+;; Version: 0.1
+
+;; This program is free software; you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation; either version 2, or (at your option)
+;; any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program; if not, you can either send email to this
+;; program's maintainer or write to: The Free Software Foundation,
+;; Inc.; 675 Massachusetts Avenue; Cambridge, MA 02139, USA.
+
 (defpackage "FLICKR"
   (:use "CL" "CCL" "S-XML" "S-XML-RPC" "MD5" "UTILS" "TRIVIAL-HTTP" "LET-MATCH")
-  (:export #:deauthorize #:request-authorization #:complete-authorization #:collect-pages))
+  (:export #:deauthorize #:request-authorization #:complete-authorization #:collect-pages #:*default-user-name*))
 
 (in-package :flickr)
 
-(defvar *api-key* "fe62be41f5e31734214d3efd4312dbb6")
-(defvar *shared-secret* "357a7ea29d65120d")
+(load "my-config.lisp")
+
 (defvar *frob* nil)
 (defvar *auth-token* nil)
 (defvar *user* nil)

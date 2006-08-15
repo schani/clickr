@@ -4,7 +4,7 @@
 
 ;; Author: Mark Probst <mark.probst@gmail.com>
 ;; Maintainer: Mark Probst <mark.probst@gmail.com>
-;; Version: 0.1
+;; Version: 0.2
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -22,16 +22,11 @@
 ;; Inc.; 675 Massachusetts Avenue; Cambridge, MA 02139, USA.
 
 (defpackage "FLICKR"
-  (:use "CL" "CCL" "S-XML" "S-XML-RPC" "MD5" "UTILS" "TRIVIAL-HTTP" "LET-MATCH")
-  (:export #:deauthorize #:request-authorization #:complete-authorization #:collect-pages #:*default-user-name*))
+  (:use "CL" #+openmcl "CCL" "S-XML" "S-XML-RPC" "MD5" "UTILS" "TRIVIAL-HTTP" "LET-MATCH")
+  (:export #:deauthorize #:request-authorization #:complete-authorization #:collect-pages #:make-flickr-api-info
+	   #:flickr-api-info-user))
 
 (in-package :flickr)
-
-(load "my-config.lisp")
-
-(defvar *frob* nil)
-(defvar *auth-token* nil)
-(defvar *user* nil)
 
 (defvar *debug-calls* nil)
 (defvar *debug-call-results* nil)
@@ -95,6 +90,13 @@
 	(:boolean (not (zerop (parse-integer value))))
 	(t (error "Unknown type ~A" type)))
       :unknown))
+
+(defstruct flickr-api-info
+  api-key
+  shared-secret
+  (auth-token nil)
+  (frob nil)
+  (user nil))
 
 (defmacro defapistruct (name &body members)
   (let ((constructor-name (gensym))
@@ -274,7 +276,7 @@
   (permalink :|permalink|)
   (text :body))
 
-(defun arguments-signature (args)
+(defun arguments-signature (api-info args)
   (labels ((convert (args)
 	     (if (null args)
 		 nil
@@ -283,15 +285,15 @@
 	   (args-string (apply #'concatenate 'string
 			       (mapcar #'(lambda (a) (concatenate 'string (car a) (cadr a)))
 				       sorted-args))))
-      (md5sum-string (concatenate 'string *shared-secret* args-string)))))
+      (md5sum-string (concatenate 'string (flickr-api-info-shared-secret api-info) args-string)))))
 
-(defun make-flickr-call (method string-modifier &rest args)
-  (let* ((full-args (append (list :|api_key| *api-key*)
-			    (if (not (null *auth-token*))
-				(list :|auth_token| *auth-token*)
+(defun make-flickr-call (api-info method string-modifier &rest args)
+  (let* ((full-args (append (list :|api_key| (flickr-api-info-api-key api-info))
+			    (if (not (null (flickr-api-info-auth-token api-info)))
+				(list :|auth_token| (flickr-api-info-auth-token api-info))
 				'())
 			    args))
-	 (args-with-signature (append (list :|api_sig| (arguments-signature full-args))
+	 (args-with-signature (append (list :|api_sig| (arguments-signature api-info full-args))
 				      full-args))
 	 (encoded-call (encode-xml-rpc-call method (apply #'xml-rpc-struct args-with-signature))))
     (when *debug-calls*
@@ -305,25 +307,26 @@
       (setq *last-call-result* xml)
       xml)))
 
-(defun lispify-method-name (string)
-  (apply #'concatenate 'string (map 'list #'(lambda (c)
-					      (cond ((eql c #\.)
-						     "-")
-						    ((upper-case-p c)
-						     (concatenate 'string "-" (string c)))
-						    (t
-						     (string (char-upcase c)))))
-				    string)))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun lispify-method-name (string)
+    (apply #'concatenate 'string (map 'list #'(lambda (c)
+						(cond ((eql c #\.)
+						       "-")
+						      ((upper-case-p c)
+						       (concatenate 'string "-" (string c)))
+						      (t
+						       (string (char-upcase c)))))
+				      string))))
 
 (defmacro defcall (name-string args &body body)
   (let ((full-method-name-string (concatenate 'string "flickr." name-string))
 	(fun-name (intern (lispify-method-name name-string))))
     `(progn
-       (defun ,fun-name ,args
+       (defun ,fun-name (api-info ,@args)
 	 (labels ((call (&rest args)
-		    (apply #'make-flickr-call ,full-method-name-string #'identity args))
+		    (apply #'make-flickr-call api-info ,full-method-name-string #'identity args))
 		  (call-with-string-modifier (string-modifier &rest args)
-		    (apply #'make-flickr-call ,full-method-name-string string-modifier args)))
+		    (apply #'make-flickr-call api-info ,full-method-name-string string-modifier args)))
 	   ,@body))
        (export ',fun-name))))
 
@@ -349,7 +352,7 @@
 
 ;; returns the token, the permission string, and the user
 (defcall "auth.getToken" ()
-  (let ((result (call :|frob| *frob*)))
+  (let ((result (call :|frob| (flickr-api-info-frob api-info))))
     (values (xml-body (xml-child :|token| result))
 	    (xml-body (xml-child :|perms| result))
 	    (make-flickr-user (xml-child :|user| result)))))
@@ -460,26 +463,22 @@
   (let ((result (call :|photoset_id| photoset-id)))
     (mapcar #'make-flickr-photoset-photo (xml-children result))))
 
-(defun deauthorize ()
-  (setf *frob* nil)
-  (setf *auth-token* nil)
-  (setf *user* nil))
+(defun request-authorization (api-key shared-secret)
+  (let* ((api-info (make-flickr-api-info :api-key api-key :shared-secret shared-secret))
+	 (frob (auth-get-frob api-info)))
+    (setf (flickr-api-info-frob api-info) frob)
+    (let* ((perms "write")
+	   (api-sig (arguments-signature api-info (list :|api_key| api-key :|perms| perms :|frob| frob)))
+	   (url (format nil "http://flickr.com/services/auth/?api_key=~A&perms=~A&frob=~A&api_sig=~A"
+			api-key perms frob api-sig)))
+      (run-program "open" (list url))
+      (values api-info url))))
 
-(defun request-authorization ()
-  (deauthorize)
-  (setf *frob* (auth-get-frob))
-  (let* ((perms "write")
-	 (api-sig (arguments-signature (list :|api_key| *api-key* :|perms| perms :|frob| *frob*)))
-	 (url (format nil "http://flickr.com/services/auth/?api_key=~A&perms=~A&frob=~A&api_sig=~A"
-		      *api-key* perms *frob* api-sig)))
-    (run-program "open" (list url))
-    url))
-
-(defun complete-authorization ()
+(defun complete-authorization (api-info)
   (multiple-value-bind (token perms user)
-      (auth-get-token)
-    (setf *auth-token* token)
-    (setf *user* user)
+      (auth-get-token api-info)
+    (setf (flickr-api-info-auth-token api-info) token)
+    (setf (flickr-api-info-user api-info) user)
     perms))
 
 (defun collect-pages (fetcher)

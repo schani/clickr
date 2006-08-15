@@ -4,7 +4,7 @@
 
 ;; Author: Mark Probst <mark.probst@gmail.com>
 ;; Maintainer: Mark Probst <mark.probst@gmail.com>
-;; Version: 0.1
+;; Version: 0.2
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -22,16 +22,19 @@
 ;; Inc.; 675 Massachusetts Avenue; Cambridge, MA 02139, USA.
 
 (defpackage "CLICKR"
-  (:use "CL" "CCL" "TRIVIAL-HTTP" "FLICKR" "UTILS")
+  (:use "CL" "TRIVIAL-HTTP" "FLICKR" "UTILS")
   (:export #:user-with-name #:user-photopage-url #:photo-photopage-url #:group-url #:reset-clickr
-	   #:add-tag #:remove-tag #:has-tag #:add-photo #:remove-photo))
+	   #:add-tag #:remove-tag #:has-tag #:add-photo #:remove-photo #:clickr-base-api-info #:contact-info))
 
 (in-package :clickr)
 
 (defvar *views-scanner* (cl-ppcre:create-scanner "Viewed <b>((\\d+)</b> times|once</b>)"))
 (defvar *faves-scanner* (cl-ppcre:create-scanner "fave_count = (\\d+);</script>"))
 
-(defmacro defapiclass (name &key key sources fetchers custom-fetchers)
+(defclass clickr-base ()
+  ((api-info :accessor clickr-base-api-info :initarg :api-info)))
+
+(defmacro defapiclass (name &key key sources fetchers custom-fetchers extra-slots)
   (when (null key)
     (error "CLickr API Class ~A has no key" name))
   (labels ((accessor-method (class-name slot-name fetcher-name)
@@ -75,15 +78,16 @@
       `(progn
 	(defvar ,hash-table-name (make-hash-table :test #'equal)) ;the hash table
 
-	(defclass ,name ()		;the class
+	(defclass ,name (clickr-base)	;the class
 	  ((,key :accessor ,key-accessor-name)
-	   ,@non-key-slots))
+	   ,@non-key-slots ,@extra-slots))
 	(export ',key-accessor-name)
 
-	(defun ,constructor-name (,key)	; the constructor
+	(defun ,constructor-name (api-info ,key)	; the constructor
 	  (let ((instance (gethash ,key ,hash-table-name)))
 	    (when (null instance)
 	      (setf instance (make-instance ',name))
+	      (setf (slot-value instance 'api-info) api-info)
 	      (setf (slot-value instance ',key) ,key)
 	      (setf (gethash ,key ,hash-table-name) instance))
 	    instance))
@@ -103,10 +107,10 @@
 			       ,@(mapcar #'(lambda (custom-item) ;custom slots
 					     `(funcall ,(cadr custom-item) instance struct))
 					 custom)))
-			   (defun ,(intern (format nil "MAKE-~A-FROM-~A" name struct-name)) (struct) ;the makers
-			     (let ((instance (,constructor-name (,(intern (format nil "~A-~A"
-										  struct-name key))
-								  struct))))
+			   (defun ,(intern (format nil "MAKE-~A-FROM-~A" name struct-name)) (api-info struct) ;the makers
+			     (let ((instance (,constructor-name api-info (,(intern (format nil "~A-~A"
+											   struct-name key))
+									   struct))))
 			       (,(taker-name struct-name) instance struct)
 			       instance)))))
 		   sources)
@@ -144,7 +148,7 @@
 	      (flickr-public-contact
 	       (username)))
     :fetchers ((flickr-person
-		(people-get-info id)))
+		(people-get-info (clickr-base-api-info instance) id)))
     :custom-fetchers (((photos)
 		       fetch-user-photos)
 		      ((photosets)
@@ -154,11 +158,12 @@
 		      ((contacts)
 		       fetch-user-contacts)
 		      ((favorites)
-		       fetch-user-favorites)))
+		       fetch-user-favorites))
+    :extra-slots (contact-list))
 
-(defun user-with-name (name)
-  (let* ((flickr-user (people-find-by-username name))
-	 (user (make-user (flickr-user-id flickr-user))))
+(defun user-with-name (api-info name)
+  (let* ((flickr-user (people-find-by-username api-info name))
+	 (user (make-user api-info (flickr-user-id flickr-user))))
     (take-values-from-flickr-user user flickr-user)
     user))
 
@@ -172,7 +177,7 @@
 	       :custom (((author)
 			 #'(lambda (instance flickr-note)
 			     (setf (slot-value instance 'author)
-				   (make-user (flickr-note-author flickr-note)))))))))
+				   (make-user (clickr-base-api-info instance) (flickr-note-author flickr-note)))))))))
 
 (defapiclass tag			;FIXME: add photo slot
     :key id
@@ -181,7 +186,7 @@
 	       :custom (((author)
 			 #'(lambda (instance flickr-tag)
 			     (setf (slot-value instance 'author)
-				   (make-user (flickr-tag-author flickr-tag)))))))))
+				   (make-user (clickr-base-api-info instance) (flickr-tag-author flickr-tag)))))))))
 
 (defapiclass comment			;FIXME: add photo slot
     :key id
@@ -190,7 +195,7 @@
 	       :custom (((author)
 			 #'(lambda (instance flickr-comment)
 			     (setf (slot-value instance 'author)
-				   (make-user (flickr-comment-author flickr-comment)))))))))
+				   (make-user (clickr-base-api-info instance) (flickr-comment-author flickr-comment)))))))))
 
 (defapiclass photo
     :key id
@@ -205,10 +210,10 @@
 	       :custom (((owner notes tags)
 			 #'(lambda (instance full-photo)
 			     (setf (slot-value instance 'owner)
-				   (make-user (flickr-full-photo-owner full-photo)))
-			     (let ((notes (mapcar #'make-note-from-flickr-note
+				   (make-user (clickr-base-api-info instance) (flickr-full-photo-owner full-photo)))
+			     (let ((notes (mapcar #'(lambda (x) (make-note-from-flickr-note (clickr-base-api-info instance) x))
 						  (flickr-full-photo-notes full-photo)))
-				   (tags (mapcar #'make-tag-from-flickr-tag
+				   (tags (mapcar #'(lambda (x) (make-tag-from-flickr-tag (clickr-base-api-info instance) x))
 						 (flickr-full-photo-tags full-photo))))
 			       (setf (slot-value instance 'notes) notes)
 			       (setf (slot-value instance 'tags) tags))))))
@@ -218,7 +223,7 @@
 	       :custom (((owner)
 			 #'(lambda (instance search-photo)
 			     (setf (slot-value instance 'owner)
-				   (make-user (flickr-search-photo-owner search-photo)))))))
+				   (make-user (clickr-base-api-info instance) (flickr-search-photo-owner search-photo)))))))
 	      (flickr-photoset-photo
 	       (secret server title))
 	      (flickr-favorite
@@ -227,9 +232,9 @@
 	       :custom (((owner)
 			 #'(lambda (instance favorite)
 			     (setf (slot-value instance 'owner)
-				   (make-user (flickr-favorite-owner favorite))))))))
+				   (make-user (clickr-base-api-info instance) (flickr-favorite-owner favorite))))))))
     :fetchers ((flickr-full-photo
-		(photos-get-info id))) ;FIXME: pass secret if available
+		(photos-get-info (clickr-base-api-info instance) id))) ;FIXME: pass secret if available
     :custom-fetchers (((sets groups)
 		       fetch-photo-contexts)
 		      ((sizes)
@@ -248,11 +253,11 @@
 	       :custom (((owner)
 			 #'(lambda (instance photoset-info)
 			     (setf (slot-value instance 'owner)
-				   (make-user (flickr-photoset-info-owner photoset-info)))))))
+				   (make-user (clickr-base-api-info instance) (flickr-photoset-info-owner photoset-info)))))))
 	      (flickr-context-set
 	       (title)))
     :fetchers ((flickr-photoset-info
-		(photosets-get-info id)))
+		(photosets-get-info (clickr-base-api-info instance) id)))
     :custom-fetchers (((photos)
 		       fetch-photoset-photos)))
 
@@ -265,81 +270,86 @@
 	      (flickr-context-pool
 	       (title)))
     :fetchers ((flickr-group
-		(groups-get-info id)))
+		(groups-get-info (clickr-base-api-info instance) id)))
     :custom-fetchers (((photos)
 		       fetch-group-photos)))
 
 (defmethod fetch-group-photos ((group group))
   (let ((photos (collect-pages #'(lambda (per-page page)
-				   (groups-pools-get-photos (group-id group)
+				   (groups-pools-get-photos (clickr-base-api-info group) (group-id group)
 							    :per-page per-page :page page)))))
     (setf (slot-value group 'photos)
-	  (mapcar #'make-photo-from-flickr-search-photo photos))))
+	  (mapcar #'(lambda (x) (make-photo-from-flickr-search-photo (clickr-base-api-info group) x))
+		  photos))))
 
 (defmethod fetch-user-photos ((user user))
   (let ((photos (collect-pages #'(lambda (per-page page)
-				   (photos-search :user-id (user-id user)
+				   (photos-search (clickr-base-api-info user) :user-id (user-id user)
 						  :per-page per-page :page page)))))
     (setf (slot-value user 'photos)
-	  (mapcar #'make-photo-from-flickr-search-photo photos))))
+	  (mapcar #'(lambda (x) (make-photo-from-flickr-search-photo (clickr-base-api-info user) x))
+		  photos))))
 
 (defmethod fetch-user-photosets ((user user))
-  (let ((photosets (photosets-get-list (user-id user))))
+  (let ((photosets (photosets-get-list (clickr-base-api-info user) (user-id user))))
     (setf (slot-value user 'photosets)
-	  (mapcar #'make-photoset-from-flickr-photoset photosets))))
+	  (mapcar #'(lambda (x) (make-photoset-from-flickr-photoset (clickr-base-api-info user) x))
+		  photosets))))
 
 (defmethod fetch-user-groups ((user user))
-  (let ((groups (people-get-public-groups (user-id user))))
+  (let ((groups (people-get-public-groups (clickr-base-api-info user) (user-id user))))
     (setf (slot-value user 'groups)
-	  (mapcar #'make-group-from-flickr-list-group groups))))
+	  (mapcar #'(lambda (x) (make-group-from-flickr-list-group (clickr-base-api-info user) x))
+		  groups))))
 
 (defmethod fetch-photoset-photos ((photoset photoset))
-  (let ((photos (photosets-get-photos (photoset-id photoset))))
+  (let ((photos (photosets-get-photos (clickr-base-api-info photoset) (photoset-id photoset))))
     (setf (slot-value photoset 'photos)
-	  (mapcar #'make-photo-from-flickr-photoset-photo photos))))
+	  (mapcar #'(lambda (x) (make-photo-from-flickr-photoset-photo (clickr-base-api-info photoset) x))
+		  photos))))
 
 (defmethod fetch-photo-contexts ((photo photo))
-  (let ((contexts (photos-get-all-contexts (photo-id photo))))
+  (let ((contexts (photos-get-all-contexts (clickr-base-api-info photo) (photo-id photo))))
     (setf (slot-value photo 'sets)
 	  (mapcar #'(lambda (context-set)
-		      (let ((set (make-photoset (flickr-context-set-id context-set))))
+		      (let ((set (make-photoset (clickr-base-api-info photo) (flickr-context-set-id context-set))))
 			(take-values-from-flickr-context-set set context-set)
 			set))
 		  (remove-if-not #'flickr-context-set-p contexts)))
     (setf (slot-value photo 'groups)
 	  (mapcar #'(lambda (context-pool)
-		      (let ((group (make-group (flickr-context-pool-id context-pool))))
+		      (let ((group (make-group (clickr-base-api-info photo) (flickr-context-pool-id context-pool))))
 			(take-values-from-flickr-context-pool group context-pool)
 			group))
 		  (remove-if-not #'flickr-context-pool-p contexts)))))
 
 (defmethod fetch-user-contacts ((user user))
-  (let ((contacts (contacts-get-public-list (user-id user))))
+  (let ((contacts (contacts-get-public-list (clickr-base-api-info user) (user-id user))))
     (setf (slot-value user 'contacts)
 	  (mapcar #'(lambda (contact)
-		      (let ((contact-user (make-user (flickr-public-contact-id contact))))
+		      (let ((contact-user (make-user (clickr-base-api-info user) (flickr-public-contact-id contact))))
 			(take-values-from-flickr-public-contact contact-user contact)
 			contact-user))
 		  contacts))))
 
 (defmethod fetch-user-favorites ((user user))
   (let ((favorites (collect-pages #'(lambda (per-page page)
-				      (favorites-get-public-list (user-id user)
+				      (favorites-get-public-list (clickr-base-api-info user) (user-id user)
 								 :per-page per-page :page page)))))
     (setf (slot-value user 'favorites)
 	  (mapcar #'(lambda (favorite)
-		      (let ((photo (make-photo (flickr-favorite-id favorite))))
+		      (let ((photo (make-photo (clickr-base-api-info user) (flickr-favorite-id favorite))))
 			(take-values-from-flickr-favorite photo favorite)
 			photo))
 		  favorites))))
 
 (defmethod fetch-photo-sizes ((photo photo))
-  (setf (slot-value photo 'sizes) (photos-get-sizes (photo-id photo))))
+  (setf (slot-value photo 'sizes) (photos-get-sizes (clickr-base-api-info photo) (photo-id photo))))
 
 (defmethod fetch-photo-comments ((photo photo))
-  (let ((comments (photos-comments-get-list (photo-id photo))))
+  (let ((comments (photos-comments-get-list (clickr-base-api-info photo) (photo-id photo))))
     (setf (slot-value photo 'comments)
-	  (mapcar #'make-comment-from-flickr-comment comments))))
+	  (mapcar #'(lambda (x) (make-comment-from-flickr-comment (clickr-base-api-info photo) x)) comments))))
 
 (defmethod photo-photopage-url ((photo photo))
   (let ((urls (photo-urls photo)))
@@ -400,12 +410,12 @@
   (string-downcase (remove-if #'(lambda (c) (find c " _-")) raw)))
 
 (defmethod add-tag ((photo photo) tags)
-  (photos-add-tags (photo-id photo) tags)
+  (photos-add-tags (clickr-base-api-info photo) (photo-id photo) tags)
   (slot-makunbound photo 'tags))
 
 (defmethod remove-tag ((photo photo) (tag tag))
   (assert (member tag (photo-tags photo)))
-  (photos-remove-tag (tag-id tag))
+  (photos-remove-tag (clickr-base-api-info photo) (tag-id tag))
   (slot-makunbound photo 'tags))
 
 (defmethod remove-tag ((photo photo) (raw string))
@@ -420,16 +430,28 @@
     (member text (photo-tags photo) :key #'tag-text :test #'string-equal)))
 
 (defmethod add-photo ((photo photo) (set photoset))
-  (photosets-add-photo (photoset-id set) (photo-id photo))
+  (photosets-add-photo (clickr-base-api-info photo) (photoset-id set) (photo-id photo))
   (slot-makunbound photo 'sets)
   (slot-makunbound set 'photos))
 
 (defmethod add-photo ((photo photo) (group group))
-  (ignore-errors (groups-pools-add (photo-id photo) (group-id group)))
+  (ignore-errors (groups-pools-add (clickr-base-api-info photo) (photo-id photo) (group-id group)))
   (slot-makunbound photo 'groups)
   (slot-makunbound group 'photos))
 
 (defmethod remove-photo ((photo photo) (group group))
-  (ignore-errors (groups-pools-remove (photo-id photo) (group-id group)))
+  (ignore-errors (groups-pools-remove (clickr-base-api-info photo) (photo-id photo) (group-id group)))
   (slot-makunbound photo 'groups)
   (slot-makunbound group 'photos))
+
+(defmethod contact-info ((user user) (contact user))
+  (unless (string= (user-id user) (flickr-user-id (flickr-api-info-user (clickr-base-api-info user))))
+    (error "Cannot get contact info for user ~A" (user-id user)))
+  (unless (slot-boundp user 'contact-list)
+    (setf (slot-value user 'contact-list) (contacts-get-list (clickr-base-api-info user))))
+  (let ((flickr-contact (find (user-id contact) (slot-value user 'contact-list) :key #'flickr-contact-id :test #'string=)))
+    (unless flickr-contact
+      (error "Have no contact ~A" (user-id contact)))
+    (append (if (flickr-contact-isfriend flickr-contact) '(:isfriend) nil)
+	    (if (flickr-contact-isfamily flickr-contact) '(:isfamily) nil)
+	    (if (flickr-contact-ignored flickr-contact) '(:ignored) nil))))

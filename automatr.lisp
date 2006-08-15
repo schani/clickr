@@ -22,12 +22,13 @@
 ;; Inc.; 675 Massachusetts Avenue; Cambridge, MA 02139, USA.
 
 (defpackage "AUTOMATR"
-  (:use "CL" "CCL" "FLICKR" "CLICKR" "UTILS" "LET-MATCH")
-  (:export #:htmlize-actions #:all-applicable-actions #:audit-actions #:*me*))
+  (:use "CL" "FLICKR" "CLICKR" "UTILS" "LET-MATCH")
+  (:export #:htmlize-actions #:all-applicable-actions #:audit-actions #:apply-actions #:*me*))
 
 (in-package :automatr)
 
-(defparameter *me* (user-with-name flickr:*default-user-name*))
+(defparameter *me* nil)
+(proclaim '(special *me*))
 
 (defstruct action
   name
@@ -98,7 +99,7 @@
   (find name *automatr-groups* :key #'automatr-group-name))
 
 (defun group-for-automatr-group (automatr-group)
-  (make-group (automatr-group-id automatr-group)))
+  (make-group (clickr-base-api-info *me*) (automatr-group-id automatr-group)))
 
 (defun group-for-automatr-group-with-name (name)
   (let ((automatr-group (automatr-group-with-name name)))
@@ -146,7 +147,7 @@
   (eq x y))
 
 (defop in-set :boolean ((id :string))
-  (let ((set (make-photoset id)))
+  (let ((set (make-photoset (clickr-base-api-info *me*) id)))
     (member instance (photoset-photos set))))
 
 (defun eval-expr (expr instance entity expected-type)
@@ -154,7 +155,7 @@
    Returns the result and the result's type."
   (declare (ignore expected-type))
   (cond ((eq expr '*me*)
-	 (values *me* 'user))
+	 (values user 'user))
 	((eq expr 't)
 	 (values t :boolean))
 	((symbolp expr)
@@ -236,7 +237,7 @@
     ((remove-tag ?raw)
      (has-tag photo raw))
     ((add-to-set ?id)
-     (let ((set (make-photoset id)))
+     (let ((set (make-photoset (clickr-base-api-info *me*) id)))
        (not (member photo (photoset-photos set)))))
     ((add-to-group ?name)
      (let* ((automatr-group (automatr-group-with-name name))
@@ -269,7 +270,7 @@
     ((remove-tag ?raw)
      (remove-tag photo raw))
     ((add-to-set ?id)
-     (let ((set (make-photoset id)))
+     (let ((set (make-photoset (clickr-base-api-info *me*) id)))
        (add-photo photo set)))
     ((add-to-group ?name)
      (let ((group (group-for-automatr-group-with-name name)))
@@ -326,7 +327,7 @@
     ((remove-tag ?raw)
      (format nil "Remove tag ~A" raw))
     ((add-to-set ?id)
-     (let ((set (make-photoset id)))
+     (let ((set (make-photoset (clickr-base-api-info *me*) id)))
        (format nil "Add to set ~A" (photoset-title set))))
     ((add-to-group ?name)
      (let ((group (group-for-automatr-group-with-name name)))
@@ -545,7 +546,7 @@
 
 (add-action 'most-faved
 	    '(add-to-set "487122")
-	    '(>= (count faves) 15))
+	    '(>= (count faves) 30))
 
 (add-action '1000views
 	    '(add-to-group 1000views)

@@ -1,9 +1,9 @@
 (use-package '(:automatr :flickr :clickr))
 
-(defvar *api-key* "fe62be41f5e31734214d3efd4312dbb6")
-(defvar *shared-secret* "357a7ea29d65120d")
+(defvar *api-key* "YOUR API KEY")
+(defvar *shared-secret* "YOUR SHARED SECRET")
 
-(defvar *my-user-name* "schani")
+(defvar *my-user-name* "YOUR USER NAME")
 (defvar *my-user* nil)
 
 (defun login-and-make-actions ()

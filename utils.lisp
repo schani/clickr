@@ -27,11 +27,11 @@
 (in-package :utils)
 
 (defun map-times (n f)
-  (labels ((map (i)
+  (labels ((perform-map (i)
 	     (if (>= i n)
 		 '()
-		 (cons (funcall f i) (map (1+ i))))))
-    (map 0)))
+		 (cons (funcall f i) (perform-map (1+ i))))))
+    (perform-map 0)))
 
 (defun integers-upto (n)
   (map-times n #'(lambda (i) i)))

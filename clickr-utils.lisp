@@ -35,7 +35,7 @@
   (let* ((sizes (photo-sizes photo))
 	 (sorted-sizes (sort sizes #'(lambda (a b)
 				       (< (flickr-size-pixels a) (flickr-size-pixels b))))))
-    (last sorted-sizes)))
+    (car (last sorted-sizes))))
 
 (defun flickr-size-background-size-p (size)
   (and (>= (flickr-size-width size) 1024)

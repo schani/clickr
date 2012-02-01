@@ -471,7 +471,8 @@
 	   (api-sig (arguments-signature api-info (list :|api_key| api-key :|perms| perms :|frob| frob)))
 	   (url (format nil "http://flickr.com/services/auth/?api_key=~A&perms=~A&frob=~A&api_sig=~A"
 			api-key perms frob api-sig)))
-      (run-program "open" (list url))
+      #+openmcl (run-program "open" (list url))
+      #+sbcl (sb-ext:run-program "url_handler.sh" (list url) :search t)
       (values api-info url))))
 
 (defun complete-authorization (api-info)

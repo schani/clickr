@@ -24,7 +24,8 @@
 (defpackage "CLICKR"
   (:use "CL" "TRIVIAL-HTTP" "FLICKR" "UTILS")
   (:export #:user-with-name #:user-photopage-url #:photo-photopage-url #:group-url #:reset-clickr
-	   #:add-tag #:remove-tag #:has-tag #:add-photo #:remove-photo #:clickr-base-api-info #:contact-info))
+	   #:add-tag #:remove-tag #:has-tag #:add-photo #:remove-photo #:clickr-base-api-info #:contact-info
+	   #:make-photo))
 
 (in-package :clickr)
 

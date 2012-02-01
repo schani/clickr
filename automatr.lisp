@@ -155,7 +155,7 @@
    Returns the result and the result's type."
   (declare (ignore expected-type))
   (cond ((eq expr '*me*)
-	 (values user 'user))
+	 (values *me* 'user))
 	((eq expr 't)
 	 (values t :boolean))
 	((symbolp expr)

@@ -22,9 +22,10 @@
 ;; Inc.; 675 Massachusetts Avenue; Cambridge, MA 02139, USA.
 
 (defpackage "CLICKR-UTILS"
-  (:use "CL" "CCL" "FLICKR" "CLICKR")
+  (:use "CL" "FLICKR" "CLICKR")
   (:export #:photo-biggest-size #:user-background-favorite-sizes
-	   #:user-favorite-owner-threshold #:unused-groups #:unused-groups-html-string))
+	   #:user-favorite-owner-threshold #:unused-groups #:unused-groups-html-string
+	   #:user-photos-big-urls #:user-favorites-big-urls))
 
 (in-package :clickr-utils)
 
@@ -69,3 +70,15 @@
 				    (format nil "<p><a href=\"~A\">~A</a></p>" (group-url g) (group-title g)))
 				groups)))
     (format nil "<html><body>~%~{~A~%~}</body></html>~%" group-strings)))
+
+(defun photo-big-url (photo)
+  (flickr-size-source (photo-biggest-size photo)))
+
+(defun photos-big-urls (photos)
+  (mapcar #'photo-big-url photos))
+
+(defun user-photos-big-urls (user)
+  (photos-big-urls (user-photos user)))
+
+(defun user-favorites-big-urls (user)
+  (photos-big-urls (user-favorites user)))

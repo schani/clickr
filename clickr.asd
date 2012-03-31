@@ -6,7 +6,6 @@
         :licence "GPL"
         :description "High-level Flickr interface"
         :depends-on (:trivial-http :md5 :s-xml :s-xml-rpc
-                                   :trivial-sockets :trivial-http
                                    :cl-ppcre)
         :serial t
         :components ((:file "utils")

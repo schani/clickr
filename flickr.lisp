@@ -48,7 +48,7 @@
 						    (string (digit-char (logand n 15) 16))))
 			       sequence))))
 
-(defun md5sum-string (string)
+(defun string-md5sum-string (string)
   (octets-to-md5-string (md5sum-sequence string)))
 
 (defun xml-tag (xml)
@@ -285,7 +285,7 @@
 	   (args-string (apply #'concatenate 'string
 			       (mapcar #'(lambda (a) (concatenate 'string (car a) (cadr a)))
 				       sorted-args))))
-      (md5sum-string (concatenate 'string (flickr-api-info-shared-secret api-info) args-string)))))
+      (string-md5sum-string (concatenate 'string (flickr-api-info-shared-secret api-info) args-string)))))
 
 (defun make-flickr-call (api-info method string-modifier &rest args)
   (let* ((full-args (append (list :|api_key| (flickr-api-info-api-key api-info))
